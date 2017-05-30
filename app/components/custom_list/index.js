@@ -2,16 +2,11 @@
 // See LICENSE.txt for license information.
 
 import PropTypes from 'prop-types';
-import React, {PureComponent} from 'react';
-import {FlatList, Keyboard, Platform, RefreshControl, SectionList, Text, View} from 'react-native';
+import {ListView, Platform, StyleSheet, Text, View} from 'react-native';
 
-import {ListTypes} from '@constants';
-import {makeStyleSheetFromTheme, changeOpacity} from '@utils/theme';
-
-export const FLATLIST = 'flat';
-export const SECTIONLIST = 'section';
-const INITIAL_BATCH_TO_RENDER = 15;
-const SCROLL_UP_MULTIPLIER = 6;
+import Loading from 'app/components/loading';
+import FormattedText from 'app/components/formatted_text';
+import {makeStyleSheetFromTheme, changeOpacity} from 'app/utils/theme';
 
 export default class CustomList extends PureComponent {
     static propTypes = {
@@ -174,33 +169,59 @@ export default class CustomList extends PureComponent {
         );
     };
 
-    renderSectionList = () => {
-        const {data, loading, theme} = this.props;
+    render() {
+        const {
+            data,
+            listInitialSize,
+            listPageSize,
+            listScrollRenderAheadDistance,
+            loading,
+            onListEndReached,
+            onListEndReachedThreshold,
+            showNoResults,
+            showSections,
+            theme
+        } = this.props;
+        const {dataSource} = this.state;
         const style = getStyleFromTheme(theme);
+        let noResults = false;
+
+        if (typeof data === 'object') {
+            noResults = Object.keys(data).length === 0;
+        } else {
+            noResults = data.length === 0;
+        }
+
+        if (loading) {
+            return <Loading/>;
+        }
+
+        if (showNoResults && noResults) {
+            return (
+                <View style={style.noResultContainer}>
+                    <FormattedText
+                        id='mobile.custom_list.no_results'
+                        defaultMessage='No Results'
+                        style={style.noResultText}
+                    />
+                </View>
+            );
+        }
 
         return (
-            <SectionList
-                contentContainerStyle={style.container}
-                extraData={loading}
-                keyboardShouldPersistTaps='always'
-                {...this.keyboardDismissProp}
-                keyExtractor={this.keyExtractor}
-                initialNumToRender={INITIAL_BATCH_TO_RENDER}
-                ItemSeparatorComponent={this.renderSeparator}
-                ListEmptyComponent={this.renderEmptyList}
-                ListFooterComponent={this.renderFooter}
-                maxToRenderPerBatch={INITIAL_BATCH_TO_RENDER + 1}
-                onLayout={this.handleLayout}
-                onScroll={this.handleScroll}
-                ref={this.setListRef}
-                removeClippedSubviews={true}
-                renderItem={this.renderItem}
-                renderSectionHeader={this.renderSectionHeader}
-                scrollEventThrottle={60}
-                sections={data}
-                style={style.list}
-                stickySectionHeadersEnabled={false}
-                testID={this.props.testID}
+            <ListView
+                style={style.listView}
+                dataSource={dataSource}
+                renderRow={this.renderRow}
+                renderSectionHeader={showSections ? this.renderSectionHeader : null}
+                renderSeparator={this.renderSeparator}
+                renderFooter={this.renderFooter}
+                enableEmptySections={true}
+                onEndReached={onListEndReached}
+                onEndReachedThreshold={onListEndReachedThreshold}
+                pageSize={listPageSize}
+                initialListSize={listInitialSize}
+                scrollRenderAheadDistance={listScrollRenderAheadDistance}
             />
         );
     };
