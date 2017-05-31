@@ -88,29 +88,6 @@ tags
 
 # Sentry
 android/sentry.properties
-ios/sentry.properties
 
 # Testing
 .nyc_output
-coverage
-.tmp
-
-# E2E testing
-mattermost-license.txt
-*.mattermost-license
-detox/artifacts
-detox/detox_pixel_*
-
-# Bundle artifact
-*.jsbundle
-
-#editor-settings
-.vscode
-.scannerwork
-launch.json
-
-# Notice.txt generation
-!build/notice-file
-
-# Temporary files created by Metro to check the health of the file watcher
-.metro-health-check*
