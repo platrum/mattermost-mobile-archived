@@ -24,6 +24,7 @@ import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import DrawerItem from './drawer_item';
 import StatusLabel from './status_label';
 import UserInfo from './user_info';
+import { SHOW_EDIT_PROFILE_SECTION } from '@constants/platrum_constants';
 
 export default class SettingsSidebarBase extends PureComponent {
     static propTypes = {
@@ -388,15 +389,22 @@ export default class SettingsSidebarBase extends PureComponent {
                     </View>
                     <View style={style.separator}/>
                     <View style={style.block}>
-                        <DrawerItem
-                            testID='settings.sidebar.edit_profile.action'
-                            defaultMessage='Edit Profile'
-                            i18nId='mobile.routes.edit_profile'
-                            iconName='pencil-outline'
-                            onPress={this.goToEditProfile}
-                            separator={true}
-                            theme={theme}
-                        />
+                        {(() => {
+                            if (SHOW_EDIT_PROFILE_SECTION) {
+                                return (
+                                    <DrawerItem
+                                        testID='settings.sidebar.edit_profile.action'
+                                        defaultMessage='Edit Profile'
+                                        i18nId='mobile.routes.edit_profile'
+                                        iconName='pencil-outline'
+                                        onPress={this.goToEditProfile}
+                                        separator={true}
+                                        theme={theme}
+                                    />
+                                )
+                            }
+                            return null;
+                        })()}
                         <DrawerItem
                             testID='settings.sidebar.settings.action'
                             defaultMessage='Settings'

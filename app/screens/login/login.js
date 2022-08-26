@@ -30,6 +30,7 @@ import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity} from '@utils/theme';
 
 import {GlobalStyles} from 'app/styles';
+import { SHOW_FORGOT_PASSWORD_BUTTON } from '@constants/platrum_constants';
 
 export const mfaExpectedErrors = ['mfa.validate_token.authenticate.app_error', 'ent.mfa.validate_token.authenticate.app_error'];
 
@@ -347,7 +348,7 @@ export default class Login extends PureComponent {
         }
 
         let forgotPassword;
-        if (this.props.config.EnableSignInWithEmail === 'true' || this.props.config.EnableSignInWithUsername === 'true') {
+        if (SHOW_FORGOT_PASSWORD_BUTTON && (this.props.config.EnableSignInWithEmail === 'true' || this.props.config.EnableSignInWithUsername === 'true')) {
             forgotPassword = (
                 <Button
                     onPress={this.forgotPassword}
