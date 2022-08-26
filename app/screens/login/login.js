@@ -24,13 +24,13 @@ import {resetToChannel, goToScreen} from '@actions/navigation';
 import ErrorText from '@components/error_text';
 import FormattedText from '@components/formatted_text';
 import StatusBar from '@components/status_bar';
+import {SHOW_FORGOT_PASSWORD_BUTTON} from '@constants/platrum_constants';
 import mattermostManaged from '@mattermost-managed';
 import {t} from '@utils/i18n';
 import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity} from '@utils/theme';
 
 import {GlobalStyles} from 'app/styles';
-import { SHOW_FORGOT_PASSWORD_BUTTON } from '@constants/platrum_constants';
 
 export const mfaExpectedErrors = ['mfa.validate_token.authenticate.app_error', 'ent.mfa.validate_token.authenticate.app_error'];
 

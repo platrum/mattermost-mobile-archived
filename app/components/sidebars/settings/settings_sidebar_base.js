@@ -14,6 +14,7 @@ import Emoji from '@components/emoji';
 import FormattedText from '@components/formatted_text';
 import UserStatus from '@components/user_status';
 import {NavigationTypes, CustomStatus} from '@constants';
+import {SHOW_EDIT_PROFILE_SECTION} from '@constants/platrum_constants';
 import {General} from '@mm-redux/constants';
 import EventEmitter from '@mm-redux/utils/event_emitter';
 import {t} from '@utils/i18n';
@@ -24,7 +25,6 @@ import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import DrawerItem from './drawer_item';
 import StatusLabel from './status_label';
 import UserInfo from './user_info';
-import { SHOW_EDIT_PROFILE_SECTION } from '@constants/platrum_constants';
 
 export default class SettingsSidebarBase extends PureComponent {
     static propTypes = {
@@ -401,7 +401,7 @@ export default class SettingsSidebarBase extends PureComponent {
                                         separator={true}
                                         theme={theme}
                                     />
-                                )
+                                );
                             }
                             return null;
                         })()}
