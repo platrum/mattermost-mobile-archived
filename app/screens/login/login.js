@@ -24,6 +24,7 @@ import {resetToChannel, goToScreen} from '@actions/navigation';
 import ErrorText from '@components/error_text';
 import FormattedText from '@components/formatted_text';
 import StatusBar from '@components/status_bar';
+import {SHOW_FORGOT_PASSWORD_BUTTON} from '@constants/platrum_constants';
 import mattermostManaged from '@mattermost-managed';
 import {t} from '@utils/i18n';
 import {preventDoubleTap} from '@utils/tap';
@@ -347,7 +348,7 @@ export default class Login extends PureComponent {
         }
 
         let forgotPassword;
-        if (this.props.config.EnableSignInWithEmail === 'true' || this.props.config.EnableSignInWithUsername === 'true') {
+        if (SHOW_FORGOT_PASSWORD_BUTTON && (this.props.config.EnableSignInWithEmail === 'true' || this.props.config.EnableSignInWithUsername === 'true')) {
             forgotPassword = (
                 <Button
                     onPress={this.forgotPassword}

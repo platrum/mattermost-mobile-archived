@@ -14,6 +14,7 @@ import Emoji from '@components/emoji';
 import FormattedText from '@components/formatted_text';
 import UserStatus from '@components/user_status';
 import {NavigationTypes, CustomStatus} from '@constants';
+import {SHOW_EDIT_PROFILE_SECTION} from '@constants/platrum_constants';
 import {General} from '@mm-redux/constants';
 import EventEmitter from '@mm-redux/utils/event_emitter';
 import {t} from '@utils/i18n';
@@ -388,15 +389,22 @@ export default class SettingsSidebarBase extends PureComponent {
                     </View>
                     <View style={style.separator}/>
                     <View style={style.block}>
-                        <DrawerItem
-                            testID='settings.sidebar.edit_profile.action'
-                            defaultMessage='Edit Profile'
-                            i18nId='mobile.routes.edit_profile'
-                            iconName='pencil-outline'
-                            onPress={this.goToEditProfile}
-                            separator={true}
-                            theme={theme}
-                        />
+                        {(() => {
+                            if (SHOW_EDIT_PROFILE_SECTION) {
+                                return (
+                                    <DrawerItem
+                                        testID='settings.sidebar.edit_profile.action'
+                                        defaultMessage='Edit Profile'
+                                        i18nId='mobile.routes.edit_profile'
+                                        iconName='pencil-outline'
+                                        onPress={this.goToEditProfile}
+                                        separator={true}
+                                        theme={theme}
+                                    />
+                                );
+                            }
+                            return null;
+                        })()}
                         <DrawerItem
                             testID='settings.sidebar.settings.action'
                             defaultMessage='Settings'
