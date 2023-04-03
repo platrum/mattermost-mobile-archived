@@ -1,17 +1,14 @@
-# Note: development on this repository has primarily moved to the `gekidou` branch
-This `master` branch is mostly in maintenance mode while we're working to getting our "v2" (code named "gekidou") to the GA stage. To contribute check out the [gekidou](https://github.com/mattermost/mattermost-mobile/tree/gekidou) branch in this repository.
+# Mattermost Mobile v2
 
-# Mattermost Mobile App
-[![Mattermost](https://user-images.githubusercontent.com/7205829/136108314-75cd2e1f-4147-4cfa-a16c-9b3b0313ea25.png)](https://mattermost.com)
-
-- **Minimum Server versions:** Current ESR version (6.3.0)
+- **Minimum Server versions:** Current ESR version (7.1.0+)
 - **Supported iOS versions:** 12.1+
 - **Supported Android versions:** 7.0+
 
+Mattermost is an open source Slack-alternative used by thousands of companies around the world in 21 languages. Learn more at [https://about.mattermost.com](https://about.mattermost.com).
 
-[Mattermost](https://mattermost.com) is an open source platform for secure collaboration across the entire software development lifecycle. This repo is for the mobile app that runs on Android and iOS. You can download our apps from the [App Store](https://about.mattermost.com/mattermost-ios-app/) or [Google Play Store](https://about.mattermost.com/mattermost-android-app/), or [build them yourself](https://developers.mattermost.com/contribute/mobile/build-your-own/). 
+You can download our apps from the [App Store](https://about.mattermost.com/mattermost-ios-app/) or [Google Play Store](https://about.mattermost.com/mattermost-android-app/), or [build them yourself](https://developers.mattermost.com/contribute/mobile/build-your-own/). 
 
-New features are released monthly - check the [changelog](https://github.com/mattermost/mattermost-mobile/blob/master/CHANGELOG.md) for currently-supported features! 
+We plan on releasing monthly updates with new features - check the [changelog](https://github.com/mattermost/mattermost-mobile/blob/master/CHANGELOG.md) for what features are currently supported! 
 
 **Important:** If you self-compile the Mattermost Mobile apps you also need to deploy your own [Mattermost Push Notification Service](https://github.com/mattermost/mattermost-push-proxy/releases). 
 
@@ -52,21 +49,15 @@ You can leave the Beta testing program at any time:
 
 App data is wiped from the device when a user logs out of the app. If the user is logged in when the account is deactivated, then within one minute the system logs the user out, and as a result all app data is wiped from the device.
 
-### Can I connect to multiple Mattermost servers using the mobile apps?
+### I need the code for the v1 version
 
-At the moment, we only support connecting to one server at a time. If you need to connect to multiple servers, please [upvote the feature request](https://mattermost.uservoice.com/forums/306457/suggestions/10975938) so we can track demand for it. 
-
-As a work around, you can install both the released "Mattermost" app and sign up to be a [tester](#testing) for the "Mattermost Beta" app so you can connect to two servers at once.
-
-### Will there be second generation apps available for tablets?
-
-We plan to add support for tablets in the future, but the timeline depends on how many people have a need for it. If you're looking for a tablet version, please help us out by [upvoting the feature request](https://mattermost.uservoice.com/forums/306457/suggestions/20082079)!
+You can still access it! We have moved the code from master to the [v1 branch](https://github.com/mattermost/mattermost-mobile/tree/v1). Be aware that we will not be providing any more v1 versions or updates in the public stores.
 
 # Troubleshooting
 
 ### I keep getting a message "Cannot connect to the server. Please check your server URL and internet connection."
 
-This sometimes appears when there is an issue with the SSL certificate configuration. 
+This sometimes appears when there is an issue with the SSL certitificate configuration. 
 
 To check that your SSL certificate is set up correctly, test the SSL certificate by visiting a site such as https://www.ssllabs.com/ssltest/index.html. If there’s an error about the missing chain or certificate path, there is likely an intermediate certificate missing that needs to be included.
 

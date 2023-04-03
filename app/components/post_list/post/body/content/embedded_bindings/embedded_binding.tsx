@@ -1,10 +1,10 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useState, useEffect} from 'react';
+import React, {useEffect, useState} from 'react';
 import {View} from 'react-native';
 
-import {AppBindingLocations} from '@mm-redux/constants/apps';
+import {AppBindingLocations} from '@constants/apps';
 import {cleanBinding} from '@utils/apps';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
@@ -12,12 +12,12 @@ import EmbedText from './embed_text';
 import EmbedTitle from './embed_title';
 import EmbedSubBindings from './embedded_sub_bindings';
 
-import type {AppBinding} from '@mm-redux/types/apps';
-import type {Theme} from '@mm-redux/types/theme';
+import type PostModel from '@typings/database/models/servers/post';
 
 type Props = {
     embed: AppBinding;
-    postId: string;
+    location: string;
+    post: PostModel;
     theme: Theme;
 }
 
@@ -38,28 +38,31 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     };
 });
 
-const EmbeddedBinding = ({embed, postId, theme}: Props) => {
+const EmbeddedBinding = ({embed, location, post, theme}: Props) => {
+    const style = getStyleSheet(theme);
     const [cleanedBindings, setCleanedBindings] = useState<AppBinding[]>([]);
 
     useEffect(() => {
-        const copiedBindings = JSON.parse(JSON.stringify(embed)) as AppBinding;
+        const copiedBindings: AppBinding = JSON.parse(JSON.stringify(embed));
         const bindings = cleanBinding(copiedBindings, AppBindingLocations.IN_POST)?.bindings;
         setCleanedBindings(bindings!);
     }, [embed]);
-
-    const style = getStyleSheet(theme);
 
     return (
         <>
             <View style={style.container}>
                 {Boolean(embed.label) &&
                 <EmbedTitle
+                    channelId={post.channelId}
+                    location={location}
                     theme={theme}
                     value={embed.label}
                 />
                 }
                 {Boolean(embed.description) &&
                 <EmbedText
+                    channelId={post.channelId}
+                    location={location}
                     value={embed.description!}
                     theme={theme}
                 />
@@ -67,7 +70,7 @@ const EmbeddedBinding = ({embed, postId, theme}: Props) => {
                 {Boolean(cleanedBindings?.length) &&
                 <EmbedSubBindings
                     bindings={cleanedBindings}
-                    postId={postId}
+                    post={post}
                     theme={theme}
                 />
                 }

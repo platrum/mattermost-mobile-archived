@@ -1,41 +1,63 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {EmojiTypes, PostTypes} from '@mm-redux/action_types';
-import {getCustomEmojiForReaction} from '@mm-redux/actions/posts';
-import {ActionResult, DispatchFunc, GenericAction} from '@mm-redux/types/actions';
-import {WebSocketMessage} from '@mm-redux/types/websocket';
+import DatabaseManager from '@database/manager';
+import {queryReaction} from '@queries/servers/reaction';
 
-export function handleAddEmoji(msg: WebSocketMessage): GenericAction {
-    const data = JSON.parse(msg.data.emoji);
+export async function handleAddCustomEmoji(serverUrl: string, msg: WebSocketMessage): Promise<void> {
+    const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
+    if (!operator) {
+        return;
+    }
 
-    return {
-        type: EmojiTypes.RECEIVED_CUSTOM_EMOJI,
-        data,
-    };
-}
-
-export function handleReactionAddedEvent(msg: WebSocketMessage) {
-    return (dispatch: DispatchFunc): ActionResult => {
-        const {data} = msg;
-        const reaction = JSON.parse(data.reaction);
-
-        dispatch(getCustomEmojiForReaction(reaction.emoji_name));
-
-        dispatch({
-            type: PostTypes.RECEIVED_REACTION,
-            data: reaction,
+    try {
+        const emoji: CustomEmoji = JSON.parse(msg.data.emoji);
+        await operator.handleCustomEmojis({
+            prepareRecordsOnly: false,
+            emojis: [emoji],
         });
-        return {data: true};
-    };
+    } catch {
+        // Do nothing
+    }
 }
 
-export function handleReactionRemovedEvent(msg: WebSocketMessage): GenericAction {
-    const {data} = msg;
-    const reaction = JSON.parse(data.reaction);
+export async function handleReactionAddedToPostEvent(serverUrl: string, msg: WebSocketMessage): Promise<void> {
+    const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
+    if (!operator) {
+        return;
+    }
 
-    return {
-        type: PostTypes.REACTION_DELETED,
-        data: reaction,
-    };
+    try {
+        const reaction: Reaction = JSON.parse(msg.data.reaction);
+        await operator.handleReactions({
+            prepareRecordsOnly: false,
+            skipSync: true,
+            postsReactions: [{
+                post_id: reaction.post_id,
+                reactions: [reaction],
+            }],
+        });
+    } catch {
+        // Do nothing
+    }
+}
+
+export async function handleReactionRemovedFromPostEvent(serverUrl: string, msg: WebSocketMessage): Promise<void> {
+    const database = DatabaseManager.serverDatabases[serverUrl]?.database;
+    if (!database) {
+        return;
+    }
+
+    try {
+        const msgReaction: Reaction = JSON.parse(msg.data.reaction);
+        const reaction = await queryReaction(database, msgReaction.emoji_name, msgReaction.post_id, msgReaction.user_id).fetch();
+
+        if (reaction.length) {
+            await database.write(async () => {
+                await reaction[0].destroyPermanently();
+            });
+        }
+    } catch {
+        // Do nothing
+    }
 }

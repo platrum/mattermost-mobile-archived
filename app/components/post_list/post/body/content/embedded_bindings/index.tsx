@@ -6,24 +6,25 @@ import {View} from 'react-native';
 
 import EmbeddedBinding from './embedded_binding';
 
-import type {AppBinding} from '@mm-redux/types/apps';
-import type {Theme} from '@mm-redux/types/theme';
+import type PostModel from '@typings/database/models/servers/post';
 
 type Props = {
-    embeds: AppBinding[];
-    postId: string;
+    location: string;
+    post: PostModel;
     theme: Theme;
 }
 
-const EmbeddedBindings = ({embeds, postId, theme}: Props) => {
-    const content = [] as React.ReactNode[];
+const EmbeddedBindings = ({location, post, theme}: Props) => {
+    const content: React.ReactNode[] = [];
+    const embeds: AppBinding[] = post.props.app_bindings;
 
     embeds.forEach((embed, i) => {
         content.push(
             <EmbeddedBinding
                 embed={embed}
+                location={location}
                 key={'binding_' + i.toString()}
-                postId={postId}
+                post={post}
                 theme={theme}
             />,
         );

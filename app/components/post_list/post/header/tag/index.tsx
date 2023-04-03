@@ -5,15 +5,12 @@ import React from 'react';
 import {StyleSheet} from 'react-native';
 
 import Tag, {BotTag, GuestTag} from '@components/tag';
-import {t} from '@utils/i18n';
-
-import type {Theme} from '@mm-redux/types/theme';
+import {t} from '@i18n';
 
 type HeaderTagProps = {
     isAutomation?: boolean;
     isAutoResponder?: boolean;
     isGuest?: boolean;
-    theme: Theme;
 }
 
 const style = StyleSheet.create({
@@ -25,31 +22,29 @@ const style = StyleSheet.create({
 });
 
 const HeaderTag = ({
-    isAutomation, isAutoResponder, isGuest, theme,
+    isAutomation, isAutoResponder, isGuest,
 }: HeaderTagProps) => {
     if (isAutomation) {
         return (
             <BotTag
                 style={style.tag}
-                testID='post_header.bot_tag'
-                theme={theme}
+                testID='post_header.bot.tag'
             />
         );
     } else if (isGuest) {
         return (
             <GuestTag
                 style={style.tag}
-                testID='post_header.guest_tag'
-                theme={theme}
+                testID='post_header.guest.tag'
             />
         );
     } else if (isAutoResponder) {
         return (
             <Tag
                 id={t('post_info.auto_responder')}
-                defaultMessage={'AUTOMATIC REPLY'}
+                defaultMessage={'Automatic Reply'}
                 style={style.tag}
-                theme={theme}
+                testID='post_header.auto_responder.tag'
             />
         );
     }

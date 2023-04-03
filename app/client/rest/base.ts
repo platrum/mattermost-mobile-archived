@@ -1,142 +1,93 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
-// See LICENSE.txt for license information.
+import {DeviceEventEmitter} from 'react-native';
 
-import {RNFetchBlobFetchRepsonse} from 'rn-fetch-blob';
-import urlParse from 'url-parse';
-
-import Calls from '@constants/calls';
-import {Options} from '@mm-redux/types/client4';
+import {Events, Calls} from '@constants';
+import {t} from '@i18n';
+import {setServerCredentials} from '@init/credentials';
+import {Analytics, create} from '@managers/analytics';
+import {semverFromServerVersion} from '@utils/server';
 
 import * as ClientConstants from './constants';
 import ClientError from './error';
 
-export default class ClientBase {
-    clusterId = '';
-    csrf = '';
-    defaultHeaders: {[x: string]: string} = {};
-    diagnosticId = '';
-    enableLogging = false;
-    includeCookies = true;
-    logToConsole = false;
-    managedConfig: any = null;
-    serverVersion = '';
-    token = '';
-    translations = {
-        connectionError: 'There appears to be a problem with your internet connection.',
-        unknownError: 'We received an unexpected status code from the server.',
-    };
-    userAgent: string|null = null;
-    url = '';
-    urlVersion = '/api/v4';
+import type {
+    APIClientInterface,
+    ClientHeaders,
+    ClientResponse,
+    RequestOptions,
+} from '@mattermost/react-native-network-client';
 
-    getAbsoluteUrl(baseUrl: string) {
+export default class ClientBase {
+    analytics: Analytics|undefined;
+    apiClient: APIClientInterface;
+    csrfToken = '';
+    requestHeaders: {[x: string]: string} = {};
+    serverVersion = '';
+    urlVersion = '/api/v4';
+    enableLogging = false;
+
+    constructor(apiClient: APIClientInterface, serverUrl: string, bearerToken?: string, csrfToken?: string) {
+        this.apiClient = apiClient;
+        this.analytics = create(serverUrl);
+
+        if (bearerToken) {
+            this.setBearerToken(bearerToken);
+        }
+        if (csrfToken) {
+            this.setCSRFToken(csrfToken);
+        }
+    }
+
+    invalidate() {
+        if (this.apiClient) {
+            this.apiClient.invalidate();
+        }
+    }
+
+    getBaseRoute() {
+        return this.apiClient.baseUrl || '';
+    }
+
+    getAbsoluteUrl(baseUrl?: string) {
         if (typeof baseUrl !== 'string' || !baseUrl.startsWith('/')) {
             return baseUrl;
         }
-        return this.getUrl() + baseUrl;
+        return this.apiClient.baseUrl + baseUrl;
     }
 
-    getOptions(options: Options) {
-        const newOptions: Options = {...options};
+    getRequestHeaders(requestMethod: string) {
+        const headers = {...this.requestHeaders};
 
-        const headers: {[x: string]: string} = {
-            [ClientConstants.HEADER_REQUESTED_WITH]: 'XMLHttpRequest',
-            ...this.defaultHeaders,
-        };
-
-        if (this.token) {
-            headers[ClientConstants.HEADER_AUTH] = `${ClientConstants.HEADER_BEARER} ${this.token}`;
+        if (this.csrfToken && requestMethod.toLowerCase() !== 'get') {
+            headers[ClientConstants.HEADER_X_CSRF_TOKEN] = this.csrfToken;
         }
 
-        const csrfToken = this.csrf || '';
-        if (options.method && options.method.toLowerCase() !== 'get' && csrfToken) {
-            headers[ClientConstants.HEADER_X_CSRF_TOKEN] = csrfToken;
-        }
-
-        if (this.includeCookies) {
-            newOptions.credentials = 'include';
-        }
-
-        if (this.userAgent) {
-            headers[ClientConstants.HEADER_USER_AGENT] = this.userAgent;
-        }
-
-        if (newOptions.headers) {
-            Object.assign(headers, newOptions.headers);
-        }
-
-        return {
-            ...newOptions,
-            headers,
-        };
-    }
-
-    getServerVersion() {
-        return this.serverVersion;
-    }
-
-    getToken() {
-        return this.token;
-    }
-
-    getUrl() {
-        return this.url;
-    }
-
-    getUrlVersion() {
-        return this.urlVersion;
+        return headers;
     }
 
     getWebSocketUrl = () => {
-        return `${this.getBaseRoute()}/websocket`;
+        return `${this.urlVersion}/websocket`;
     };
 
     setAcceptLanguage(locale: string) {
-        this.defaultHeaders['Accept-Language'] = locale;
+        this.requestHeaders[ClientConstants.HEADER_ACCEPT_LANGUAGE] = locale;
     }
 
-    setCSRF(csrfToken: string) {
-        this.csrf = csrfToken;
+    setBearerToken(bearerToken: string) {
+        this.requestHeaders[ClientConstants.HEADER_AUTH] = `${ClientConstants.HEADER_BEARER} ${bearerToken}`;
+        setServerCredentials(this.apiClient.baseUrl, bearerToken);
     }
 
-    setDiagnosticId(diagnosticId: string) {
-        this.diagnosticId = diagnosticId;
-    }
-
-    setEnableLogging(enable: boolean) {
-        this.enableLogging = enable;
-    }
-
-    setIncludeCookies(include: boolean) {
-        this.includeCookies = include;
-    }
-
-    setManagedConfig(config: any) {
-        this.managedConfig = config;
-    }
-
-    setUserAgent(userAgent: string) {
-        this.userAgent = userAgent;
-    }
-
-    setToken(token: string) {
-        this.token = token;
-    }
-
-    setUrl(url: string) {
-        this.url = url.replace(/\/+$/, '');
+    setCSRFToken(csrfToken: string) {
+        this.csrfToken = csrfToken;
     }
 
     // Routes
-    getBaseRoute() {
-        return `${this.url}${this.urlVersion}`;
-    }
 
     getUsersRoute() {
-        return `${this.getBaseRoute()}/users`;
+        return `${this.urlVersion}/users`;
     }
 
     getUserRoute(userId: string) {
@@ -144,7 +95,7 @@ export default class ClientBase {
     }
 
     getTeamsRoute() {
-        return `${this.getBaseRoute()}/teams`;
+        return `${this.urlVersion}/teams`;
     }
 
     getTeamRoute(teamId: string) {
@@ -163,12 +114,28 @@ export default class ClientBase {
         return `${this.getTeamMembersRoute(teamId)}/${userId}`;
     }
 
+    getCategoriesRoute(userId: string, teamId: string) {
+        return `${this.getUserRoute(userId)}/teams/${teamId}/channels/categories`;
+    }
+
+    getCategoriesOrderRoute(userId: string, teamId: string) {
+        return `${this.getCategoriesRoute(userId, teamId)}/order`;
+    }
+
+    getCategoryRoute(userId: string, teamId: string, categoryId: string) {
+        return `${this.getCategoriesRoute(userId, teamId)}/${categoryId}`;
+    }
+
     getChannelsRoute() {
-        return `${this.getBaseRoute()}/channels`;
+        return `${this.urlVersion}/channels`;
     }
 
     getChannelRoute(channelId: string) {
         return `${this.getChannelsRoute()}/${channelId}`;
+    }
+
+    getSharedChannelsRoute() {
+        return `${this.urlVersion}/sharedchannels`;
     }
 
     getChannelMembersRoute(channelId: string) {
@@ -180,27 +147,23 @@ export default class ClientBase {
     }
 
     getPostsRoute() {
-        return `${this.getBaseRoute()}/posts`;
+        return `${this.urlVersion}/posts`;
     }
 
     getPostRoute(postId: string) {
         return `${this.getPostsRoute()}/${postId}`;
     }
 
-    getSharedChannelsRoute() {
-        return `${this.getBaseRoute()}/sharedchannels`;
-    }
-
     getReactionsRoute() {
-        return `${this.getBaseRoute()}/reactions`;
+        return `${this.urlVersion}/reactions`;
     }
 
     getCommandsRoute() {
-        return `${this.getBaseRoute()}/commands`;
+        return `${this.urlVersion}/commands`;
     }
 
     getFilesRoute() {
-        return `${this.getBaseRoute()}/files`;
+        return `${this.urlVersion}/files`;
     }
 
     getFileRoute(fileId: string) {
@@ -211,184 +174,148 @@ export default class ClientBase {
         return `${this.getUserRoute(userId)}/preferences`;
     }
 
-    getIncomingHooksRoute() {
-        return `${this.getBaseRoute()}/hooks/incoming`;
-    }
-
-    getIncomingHookRoute(hookId: string) {
-        return `${this.getBaseRoute()}/hooks/incoming/${hookId}`;
-    }
-
-    getOutgoingHooksRoute() {
-        return `${this.getBaseRoute()}/hooks/outgoing`;
-    }
-
-    getOutgoingHookRoute(hookId: string) {
-        return `${this.getBaseRoute()}/hooks/outgoing/${hookId}`;
-    }
-
-    getOAuthRoute() {
-        return `${this.url}/oauth`;
-    }
-
-    getOAuthAppsRoute() {
-        return `${this.getBaseRoute()}/oauth/apps`;
-    }
-
-    getOAuthAppRoute(appId: string) {
-        return `${this.getOAuthAppsRoute()}/${appId}`;
-    }
-
     getEmojisRoute() {
-        return `${this.getBaseRoute()}/emoji`;
+        return `${this.urlVersion}/emoji`;
     }
 
     getEmojiRoute(emojiId: string) {
         return `${this.getEmojisRoute()}/${emojiId}`;
     }
 
-    getBrandRoute() {
-        return `${this.getBaseRoute()}/brand`;
+    getGlobalDataRetentionRoute() {
+        return `${this.urlVersion}/data_retention`;
     }
 
-    getBrandImageUrl(timestamp: string) {
-        return `${this.getBrandRoute()}/image?t=${timestamp}`;
-    }
-
-    getDataRetentionRoute() {
-        return `${this.getBaseRoute()}/data_retention`;
+    getGranularDataRetentionRoute(userId: string) {
+        return `${this.getUserRoute(userId)}/data_retention`;
     }
 
     getRolesRoute() {
-        return `${this.getBaseRoute()}/roles`;
+        return `${this.urlVersion}/roles`;
     }
 
     getTimezonesRoute() {
-        return `${this.getBaseRoute()}/system/timezones`;
+        return `${this.urlVersion}/system/timezones`;
     }
 
     getRedirectLocationRoute() {
-        return `${this.getBaseRoute()}/redirect_location`;
+        return `${this.urlVersion}/redirect_location`;
     }
 
-    getBotsRoute() {
-        return `${this.getBaseRoute()}/bots`;
+    getThreadsRoute(userId: string, teamId: string): string {
+        return `${this.getUserRoute(userId)}/teams/${teamId}/threads`;
     }
 
-    getBotRoute(botUserId: string) {
-        return `${this.getBotsRoute()}/${botUserId}`;
-    }
-
-    getUserThreadsRoute(userID: string, teamID: string): string {
-        return `${this.getUserRoute(userID)}/teams/${teamID}/threads`;
-    }
-
-    getUserThreadRoute(userId: string, teamId: string, threadId: string): string {
-        return `${this.getUserThreadsRoute(userId, teamId)}/${threadId}`;
+    getThreadRoute(userId: string, teamId: string, threadId: string): string {
+        return `${this.getThreadsRoute(userId, teamId)}/${threadId}`;
     }
 
     getPluginsRoute() {
-        return `${this.getBaseRoute()}/plugins`;
+        return `${this.urlVersion}/plugins`;
+    }
+
+    getPluginRoute(id: string) {
+        return `/plugins/${id}`;
     }
 
     getAppsProxyRoute() {
-        return `${this.url}/plugins/com.mattermost.apps`;
+        return this.getPluginRoute('com.mattermost.apps');
     }
 
     getCallsRoute() {
-        return `${this.url}/plugins/${Calls.PluginId}`;
+        return this.getPluginRoute(Calls.PluginId);
     }
 
-    // Client Helpers
-    handleRedirectProtocol = (url: string, response: RNFetchBlobFetchRepsonse) => {
-        const serverUrl = this.getUrl();
-        const parsed = urlParse(url);
-        const {redirects} = response.rnfbRespInfo;
-        if (redirects) {
-            const redirectUrl = urlParse(redirects[redirects.length - 1]);
+    doFetch = async (url: string, options: ClientOptions, returnDataOnly = true) => {
+        let request;
+        const method = options.method?.toLowerCase();
+        switch (method) {
+            case 'get':
+                request = this.apiClient!.get;
+                break;
+            case 'put':
+                request = this.apiClient!.put;
+                break;
+            case 'post':
+                request = this.apiClient!.post;
+                break;
+            case 'patch':
+                request = this.apiClient!.patch;
+                break;
+            case 'delete':
+                request = this.apiClient!.delete;
+                break;
+            default:
+                throw new ClientError(this.apiClient.baseUrl, {
+                    message: 'Invalid request method',
+                    intl: {
+                        id: t('mobile.request.invalid_request_method'),
+                        defaultMessage: 'Invalid request method',
+                    },
+                    url,
+                });
+        }
 
-            if (serverUrl === parsed.origin && parsed.host === redirectUrl.host && parsed.protocol !== redirectUrl.protocol) {
-                this.setUrl(serverUrl.replace(parsed.protocol, redirectUrl.protocol));
+        const requestOptions: RequestOptions = {
+            body: options.body,
+            headers: this.getRequestHeaders(method),
+        };
+        if (options.noRetry) {
+            requestOptions.retryPolicyConfiguration = {
+                retryLimit: 0,
+            };
+        }
+        if (options.timeoutInterval) {
+            requestOptions.timeoutInterval = options.timeoutInterval;
+        }
+
+        if (options.headers) {
+            if (requestOptions.headers) {
+                requestOptions.headers = {
+                    ...requestOptions.headers,
+                    ...options.headers,
+                };
+            } else {
+                requestOptions.headers = options.headers;
             }
         }
-    };
 
-    doFetch = async (url: string, options: Options) => {
-        const {data} = await this.doFetchWithResponse(url, options);
-
-        return data;
-    };
-
-    doFetchWithResponse = async (url: string, options: Options) => {
-        const response = await fetch(url, this.getOptions(options));
-        const headers = parseAndMergeNestedHeaders(response.headers);
-
-        let data;
+        let response: ClientResponse;
         try {
-            data = await response.json();
-        } catch (err) {
-            throw new ClientError(this.getUrl(), {
+            response = await request!(url, requestOptions);
+        } catch (error) {
+            throw new ClientError(this.apiClient.baseUrl, {
                 message: 'Received invalid response from the server.',
                 intl: {
-                    id: 'mobile.request.invalid_response',
+                    id: t('mobile.request.invalid_response'),
                     defaultMessage: 'Received invalid response from the server.',
                 },
                 url,
             });
         }
 
-        if (headers.has(ClientConstants.HEADER_X_VERSION_ID) && !headers.get('Cache-Control')) {
-            const serverVersion = headers.get(ClientConstants.HEADER_X_VERSION_ID);
-            if (serverVersion && this.serverVersion !== serverVersion) {
-                this.serverVersion = serverVersion;
-            }
+        const headers: ClientHeaders = response.headers || {};
+        const serverVersion = semverFromServerVersion(headers[ClientConstants.HEADER_X_VERSION_ID] || headers[ClientConstants.HEADER_X_VERSION_ID.toLowerCase()]);
+        const hasCacheControl = Boolean(headers[ClientConstants.HEADER_CACHE_CONTROL] || headers[ClientConstants.HEADER_CACHE_CONTROL.toLowerCase()]);
+        if (serverVersion && !hasCacheControl && this.serverVersion !== serverVersion) {
+            this.serverVersion = serverVersion;
+            DeviceEventEmitter.emit(Events.SERVER_VERSION_CHANGED, {serverUrl: this.apiClient.baseUrl, serverVersion});
         }
 
-        if (headers.has(ClientConstants.HEADER_X_CLUSTER_ID)) {
-            const clusterId = headers.get(ClientConstants.HEADER_X_CLUSTER_ID);
-            if (clusterId && this.clusterId !== clusterId) {
-                this.clusterId = clusterId;
-            }
+        const bearerToken = headers[ClientConstants.HEADER_TOKEN] || headers[ClientConstants.HEADER_TOKEN.toLowerCase()];
+        if (bearerToken) {
+            this.setBearerToken(bearerToken);
         }
 
         if (response.ok) {
-            return {
-                response,
-                headers,
-                data,
-            };
+            return returnDataOnly ? (response.data || {}) : response;
         }
 
-        const msg = data.message || '';
-
-        if (this.logToConsole) {
-            console.error(msg); // eslint-disable-line no-console
-        }
-
-        throw new ClientError(this.getUrl(), {
-            message: msg,
-            server_error_id: data.id,
-            status_code: data.status_code,
+        throw new ClientError(this.apiClient.baseUrl, {
+            message: response.data?.message || '',
+            server_error_id: response.data?.id,
+            status_code: response.code,
             url,
         });
     };
-}
-
-function parseAndMergeNestedHeaders(originalHeaders: any) {
-    const headers = new Map();
-    let nestedHeaders = new Map();
-    originalHeaders.forEach((val: string, key: string) => {
-        const capitalizedKey = key.replace(/\b[a-z]/g, (l) => l.toUpperCase());
-        let realVal = val;
-        if (val && val.match(/\n\S+:\s\S+/)) {
-            const nestedHeaderStrings = val.split('\n');
-            realVal = nestedHeaderStrings.shift() as string;
-            const moreNestedHeaders = new Map(
-                nestedHeaderStrings.map((h: any) => h.split(/:\s/)),
-            );
-            nestedHeaders = new Map([...nestedHeaders, ...moreNestedHeaders]);
-        }
-        headers.set(capitalizedKey, realVal);
-    });
-    return new Map([...headers, ...nestedHeaders]);
 }

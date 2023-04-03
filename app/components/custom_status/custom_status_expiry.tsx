@@ -1,41 +1,55 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import moment from 'moment-timezone';
+import {withDatabase} from '@nozbe/watermelondb/DatabaseProvider';
+import withObservables from '@nozbe/with-observables';
+import moment, {Moment} from 'moment-timezone';
 import React from 'react';
 import {Text, TextStyle} from 'react-native';
-import {useSelector} from 'react-redux';
+import {of as of$} from 'rxjs';
+import {switchMap} from 'rxjs/operators';
 
 import FormattedDate from '@components/formatted_date';
 import FormattedText from '@components/formatted_text';
 import FormattedTime from '@components/formatted_time';
-import Preferences from '@mm-redux/constants/preferences';
-import {getBool} from '@mm-redux/selectors/entities/preferences';
-import {getCurrentUserTimezone} from '@mm-redux/selectors/entities/timezone';
-import {GlobalState} from '@mm-redux/types/store';
-import {Theme} from '@mm-redux/types/theme';
+import {getDisplayNamePreferenceAsBool} from '@helpers/api/preference';
+import {queryDisplayNamePreferences} from '@queries/servers/preference';
+import {observeCurrentUser} from '@queries/servers/user';
+import {getCurrentMomentForTimezone} from '@utils/helpers';
 import {makeStyleSheetFromTheme} from '@utils/theme';
-import {getCurrentMomentForTimezone} from '@utils/timezone';
+import {getUserTimezoneProps} from '@utils/user';
+
+import type {WithDatabaseArgs} from '@typings/database/database';
+import type UserModel from '@typings/database/models/servers/user';
 
 type Props = {
-    theme: Theme;
-    time: Date;
-    textStyles?: TextStyle;
-    testID?: string;
+    currentUser: UserModel;
+    isMilitaryTime: boolean;
     showPrefix?: boolean;
-    withinBrackets?: boolean;
-    showToday?: boolean;
     showTimeCompulsory?: boolean;
+    showToday?: boolean;
+    testID?: string;
+    textStyles?: TextStyle;
+    theme: Theme;
+    time: Date | Moment;
+    withinBrackets?: boolean;
 }
 
-const CustomStatusExpiry = ({time, theme, textStyles = {}, showPrefix, withinBrackets, testID = '', showTimeCompulsory, showToday}: Props) => {
-    const timezone = useSelector(getCurrentUserTimezone);
-    const styles = createStyleSheet(theme);
-    const militaryTime = useSelector((state: GlobalState) => getBool(state, Preferences.CATEGORY_DISPLAY_SETTINGS, 'use_military_time'));
+const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
+    return {
+        text: {
+            fontSize: 15,
+            color: theme.centerChannelColor,
+        },
+    };
+});
+
+const CustomStatusExpiry = ({currentUser, isMilitaryTime, showPrefix, showTimeCompulsory, showToday, testID = '', textStyles = {}, theme, time, withinBrackets}: Props) => {
+    const userTimezone = getUserTimezoneProps(currentUser);
+    const timezone = userTimezone.useAutomaticTimezone ? userTimezone.automaticTimezone : userTimezone.manualTimezone;
+    const styles = getStyleSheet(theme);
     const currentMomentTime = getCurrentMomentForTimezone(timezone);
-
     const expiryMomentTime = timezone ? moment(time).tz(timezone) : moment(time);
-
     const plusSixDaysEndTime = currentMomentTime.clone().add(6, 'days').endOf('day');
     const tomorrowEndTime = currentMomentTime.clone().add(1, 'day').endOf('day');
     const todayEndTime = currentMomentTime.clone().endOf('day');
@@ -47,6 +61,7 @@ const CustomStatusExpiry = ({time, theme, textStyles = {}, showPrefix, withinBra
             <FormattedText
                 id='custom_status.expiry_time.today'
                 defaultMessage='Today'
+                style={[styles.text, textStyles]}
             />
         );
     } else if (expiryMomentTime.isAfter(todayEndTime) && expiryMomentTime.isSameOrBefore(tomorrowEndTime)) {
@@ -54,6 +69,7 @@ const CustomStatusExpiry = ({time, theme, textStyles = {}, showPrefix, withinBra
             <FormattedText
                 id='custom_status.expiry_time.tomorrow'
                 defaultMessage='Tomorrow'
+                style={[styles.text, textStyles]}
             />
         );
     } else if (expiryMomentTime.isAfter(tomorrowEndTime)) {
@@ -69,11 +85,12 @@ const CustomStatusExpiry = ({time, theme, textStyles = {}, showPrefix, withinBra
                 format={format}
                 timezone={timezone}
                 value={expiryMomentTime.toDate()}
+                style={[styles.text, textStyles]}
             />
         );
     }
 
-    const useTime = showTimeCompulsory || !(expiryMomentTime.isSame(todayEndTime) || expiryMomentTime.isAfter(tomorrowEndTime));
+    const useTime = showTimeCompulsory ?? !(expiryMomentTime.isSame(todayEndTime) || expiryMomentTime.isAfter(tomorrowEndTime));
 
     return (
         <Text
@@ -85,6 +102,7 @@ const CustomStatusExpiry = ({time, theme, textStyles = {}, showPrefix, withinBra
                 <FormattedText
                     id='custom_status.expiry.until'
                     defaultMessage='Until'
+                    style={[styles.text, textStyles]}
                 />
             )}
             {showPrefix && ' '}
@@ -95,15 +113,17 @@ const CustomStatusExpiry = ({time, theme, textStyles = {}, showPrefix, withinBra
                     <FormattedText
                         id='custom_status.expiry.at'
                         defaultMessage='at'
+                        style={[styles.text, textStyles]}
                     />
                     {' '}
                 </>
             )}
             {useTime && (
                 <FormattedTime
-                    isMilitaryTime={militaryTime}
+                    isMilitaryTime={isMilitaryTime}
                     timezone={timezone || ''}
                     value={expiryMomentTime.toDate()}
+                    style={[styles.text, textStyles]}
                 />
             )}
             {withinBrackets && ')'}
@@ -111,13 +131,14 @@ const CustomStatusExpiry = ({time, theme, textStyles = {}, showPrefix, withinBra
     );
 };
 
-export default CustomStatusExpiry;
+const enhanced = withObservables([], ({database}: WithDatabaseArgs) => ({
+    currentUser: observeCurrentUser(database),
+    isMilitaryTime: queryDisplayNamePreferences(database).
+        observeWithColumns(['value']).pipe(
+            switchMap(
+                (preferences) => of$(getDisplayNamePreferenceAsBool(preferences, 'use_military_time')),
+            ),
+        ),
+}));
 
-const createStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
-    return {
-        text: {
-            fontSize: 15,
-            color: theme.centerChannelColor,
-        },
-    };
-});
+export default withDatabase(enhanced(CustomStatusExpiry));

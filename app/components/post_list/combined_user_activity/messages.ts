@@ -1,13 +1,13 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {Posts} from '@mm-redux/constants';
-import {t} from '@utils/i18n';
+import {Post} from '@constants';
+import {t} from '@i18n';
 
 const {
     JOIN_CHANNEL, ADD_TO_CHANNEL, REMOVE_FROM_CHANNEL, LEAVE_CHANNEL,
     JOIN_TEAM, ADD_TO_TEAM, REMOVE_FROM_TEAM, LEAVE_TEAM,
-} = Posts.POST_TYPES;
+} = Post.POST_TYPES;
 
 export const postTypeMessages = {
     [JOIN_CHANNEL]: {
@@ -157,35 +157,35 @@ export const postTypeMessages = {
 };
 
 export const systemMessages = {
-    [Posts.POST_TYPES.ADD_TO_CHANNEL]: {
+    [ADD_TO_CHANNEL]: {
         id: t('last_users_message.added_to_channel.type'),
         defaultMessage: 'were **added to the channel** by {actor}.',
     },
-    [Posts.POST_TYPES.JOIN_CHANNEL]: {
+    [JOIN_CHANNEL]: {
         id: t('last_users_message.joined_channel.type'),
         defaultMessage: '**joined the channel**.',
     },
-    [Posts.POST_TYPES.LEAVE_CHANNEL]: {
+    [LEAVE_CHANNEL]: {
         id: t('last_users_message.left_channel.type'),
         defaultMessage: '**left the channel**.',
     },
-    [Posts.POST_TYPES.REMOVE_FROM_CHANNEL]: {
+    [REMOVE_FROM_CHANNEL]: {
         id: t('last_users_message.removed_from_channel.type'),
         defaultMessage: 'were **removed from the channel**.',
     },
-    [Posts.POST_TYPES.ADD_TO_TEAM]: {
+    [ADD_TO_TEAM]: {
         id: t('last_users_message.added_to_team.type'),
         defaultMessage: 'were **added to the team** by {actor}.',
     },
-    [Posts.POST_TYPES.JOIN_TEAM]: {
+    [JOIN_TEAM]: {
         id: t('last_users_message.joined_team.type'),
         defaultMessage: '**joined the team**.',
     },
-    [Posts.POST_TYPES.LEAVE_TEAM]: {
+    [LEAVE_TEAM]: {
         id: t('last_users_message.left_team.type'),
         defaultMessage: '**left the team**.',
     },
-    [Posts.POST_TYPES.REMOVE_FROM_TEAM]: {
+    [REMOVE_FROM_TEAM]: {
         id: t('last_users_message.removed_from_team.type'),
         defaultMessage: 'were **removed from the team**.',
     },

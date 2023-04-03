@@ -2,22 +2,26 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback} from 'react';
-import {injectIntl} from 'react-intl';
-import {Dimensions, StatusBar, StyleSheet} from 'react-native';
-import {launchCamera, CameraOptions} from 'react-native-image-picker';
+import {useIntl} from 'react-intl';
+import {Alert, StyleSheet} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
-import {showModalOverCurrentContext} from '@actions/navigation';
 import CompassIcon from '@components/compass_icon';
+import {ITEM_HEIGHT} from '@components/slide_up_panel_item';
 import TouchableWithFeedback from '@components/touchable_with_feedback';
-import {NavigationTypes} from '@constants';
-import {ICON_SIZE, MAX_FILE_COUNT_WARNING} from '@constants/post_draft';
-import EventEmitter from '@mm-redux/utils/event_emitter';
-import {hasCameraPermission} from '@utils/permission';
+import {ICON_SIZE} from '@constants/post_draft';
+import {useTheme} from '@context/theme';
+import {TITLE_HEIGHT} from '@screens/bottom_sheet/content';
+import {bottomSheet} from '@screens/navigation';
+import {fileMaxWarning} from '@utils/file';
+import PickerUtil from '@utils/file/file_picker';
+import {bottomSheetSnapPoint} from '@utils/helpers';
 import {changeOpacity} from '@utils/theme';
 
 import CameraType from './camera_type';
 
 import type {QuickActionAttachmentProps} from '@typings/components/post_draft_quick_action';
+import type {CameraOptions} from 'react-native-image-picker';
 
 const style = StyleSheet.create({
     icon: {
@@ -27,69 +31,69 @@ const style = StyleSheet.create({
     },
 });
 
-const CameraQuickAction = ({disabled, fileCount, intl, maxFileCount, onUploadFiles, testID, theme}: QuickActionAttachmentProps) => {
-    const attachFileFromCamera = async (options: CameraOptions) => {
-        EventEmitter.emit(NavigationTypes.CLOSE_SLIDE_UP);
-        const hasPermission = await hasCameraPermission(intl);
+export default function CameraQuickAction({
+    disabled,
+    onUploadFiles,
+    maxFilesReached,
+    maxFileCount,
+    testID,
+}: QuickActionAttachmentProps) {
+    const intl = useIntl();
+    const theme = useTheme();
+    const {bottom} = useSafeAreaInsets();
 
-        if (hasPermission) {
-            launchCamera(options, (response) => {
-                StatusBar.setHidden(false);
-                if (response.errorCode || response.didCancel) {
-                    return;
-                }
+    const handleButtonPress = useCallback((options: CameraOptions) => {
+        const picker = new PickerUtil(intl,
+            onUploadFiles);
 
-                if (response.assets) {
-                    onUploadFiles(response.assets);
-                }
-            });
-        }
-    };
+        picker.attachFileFromCamera(options);
+    }, [intl, onUploadFiles]);
 
-    const handleButtonPress = useCallback(() => {
-        if (fileCount === maxFileCount) {
-            EventEmitter.emit(MAX_FILE_COUNT_WARNING);
+    const renderContent = useCallback(() => {
+        return (
+            <CameraType
+                onPress={handleButtonPress}
+            />
+        );
+    }, [handleButtonPress]);
+
+    const openSelectorModal = useCallback(() => {
+        if (maxFilesReached) {
+            Alert.alert(
+                intl.formatMessage({
+                    id: 'mobile.link.error.title',
+                    defaultMessage: 'Error',
+                }),
+                fileMaxWarning(intl, maxFileCount),
+            );
             return;
         }
 
-        EventEmitter.emit(NavigationTypes.BLUR_POST_DRAFT);
-
-        const passProps = {
-            allowStayMiddle: false,
-            children: (
-                <CameraType
-                    onPress={attachFileFromCamera}
-                    theme={theme}
-                />
-            ),
-            marginFromTop: Dimensions.get('window').height - 210,
+        bottomSheet({
+            title: intl.formatMessage({id: 'mobile.camera_type.title', defaultMessage: 'Camera options'}),
+            renderContent,
+            snapPoints: [1, bottomSheetSnapPoint(2, ITEM_HEIGHT, bottom) + TITLE_HEIGHT],
             theme,
-        };
-
-        showModalOverCurrentContext('SlideUp', passProps);
-    }, [fileCount, maxFileCount]);
+            closeButtonId: 'camera-close-id',
+        });
+    }, [intl, theme, renderContent, maxFilesReached, maxFileCount, bottom]);
 
     const actionTestID = disabled ? `${testID}.disabled` : testID;
     const color = disabled ? changeOpacity(theme.centerChannelColor, 0.16) : changeOpacity(theme.centerChannelColor, 0.64);
 
     return (
-        <>
-            <TouchableWithFeedback
-                testID={actionTestID}
-                disabled={disabled}
-                onPress={handleButtonPress}
-                style={style.icon}
-                type={'opacity'}
-            >
-                <CompassIcon
-                    color={color}
-                    name='camera-outline'
-                    size={ICON_SIZE}
-                />
-            </TouchableWithFeedback>
-        </>
+        <TouchableWithFeedback
+            testID={actionTestID}
+            disabled={disabled}
+            onPress={openSelectorModal}
+            style={style.icon}
+            type={'opacity'}
+        >
+            <CompassIcon
+                color={color}
+                name='camera-outline'
+                size={ICON_SIZE}
+            />
+        </TouchableWithFeedback>
     );
-};
-
-export default injectIntl(CameraQuickAction);
-
+}

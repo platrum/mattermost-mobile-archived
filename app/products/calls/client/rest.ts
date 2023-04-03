@@ -1,15 +1,20 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import type {ServerChannelState, ServerConfig} from '@mmproducts/calls/store/types/calls';
+import type {ServerChannelState, ApiResp} from '@calls/types/calls';
+import type {CallRecordingState, CallsConfig} from '@mattermost/calls/lib/types';
+import type {RTCIceServer} from 'react-native-webrtc';
 
 export interface ClientCallsMix {
     getEnabled: () => Promise<Boolean>;
     getCalls: () => Promise<ServerChannelState[]>;
-    getCallsConfig: () => Promise<ServerConfig>;
-    enableChannelCalls: (channelId: string) => Promise<ServerChannelState>;
-    disableChannelCalls: (channelId: string) => Promise<ServerChannelState>;
-    endCall: (channelId: string) => Promise<any>;
+    getCallForChannel: (channelId: string) => Promise<ServerChannelState>;
+    getCallsConfig: () => Promise<CallsConfig>;
+    enableChannelCalls: (channelId: string, enable: boolean) => Promise<ServerChannelState>;
+    endCall: (channelId: string) => Promise<ApiResp>;
+    genTURNCredentials: () => Promise<RTCIceServer[]>;
+    startCallRecording: (callId: string) => Promise<ApiResp | CallRecordingState>;
+    stopCallRecording: (callId: string) => Promise<ApiResp | CallRecordingState>;
 }
 
 const ClientCalls = (superclass: any) => class extends superclass {
@@ -27,7 +32,14 @@ const ClientCalls = (superclass: any) => class extends superclass {
 
     getCalls = async () => {
         return this.doFetch(
-            `${this.getCallsRoute()}/channels`,
+            `${this.getCallsRoute()}/channels?mobilev2=true`,
+            {method: 'get'},
+        );
+    };
+
+    getCallForChannel = async (channelId: string) => {
+        return this.doFetch(
+            `${this.getCallsRoute()}/${channelId}?mobilev2=true`,
             {method: 'get'},
         );
     };
@@ -36,20 +48,13 @@ const ClientCalls = (superclass: any) => class extends superclass {
         return this.doFetch(
             `${this.getCallsRoute()}/config`,
             {method: 'get'},
-        ) as ServerConfig;
+        ) as CallsConfig;
     };
 
-    enableChannelCalls = async (channelId: string) => {
+    enableChannelCalls = async (channelId: string, enable: boolean) => {
         return this.doFetch(
             `${this.getCallsRoute()}/${channelId}`,
-            {method: 'post', body: JSON.stringify({enabled: true})},
-        );
-    };
-
-    disableChannelCalls = async (channelId: string) => {
-        return this.doFetch(
-            `${this.getCallsRoute()}/${channelId}`,
-            {method: 'post', body: JSON.stringify({enabled: false})},
+            {method: 'post', body: {enabled: enable}},
         );
     };
 
@@ -64,6 +69,20 @@ const ClientCalls = (superclass: any) => class extends superclass {
         return this.doFetch(
             `${this.getCallsRoute()}/turn-credentials`,
             {method: 'get'},
+        );
+    };
+
+    startCallRecording = async (callID: string) => {
+        return this.doFetch(
+            `${this.getCallsRoute()}/calls/${callID}/recording/start`,
+            {method: 'post'},
+        );
+    };
+
+    stopCallRecording = async (callID: string) => {
+        return this.doFetch(
+            `${this.getCallsRoute()}/calls/${callID}/recording/stop`,
+            {method: 'post'},
         );
     };
 };

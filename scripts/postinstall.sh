@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  if !gem list bundler -i --version 2.1.4 > /dev/null 2>&1; then
-    gem install bundler --version 2.1.4
-  fi
   echo "Installing Gems"
-  npm run ios-gems
+  npm run ios-gems &> /dev/null
   echo "Getting Cocoapods dependencies"
-  npm run pod-install
+  npm run pod-install &> /dev/null
+fi
+
+COMPASS_ICONS="node_modules/@mattermost/compass-icons/font/compass-icons.ttf"
+if [ -z "$COMPASS_ICONS" ]; then
+    echo "Compass Icons font not found"
+    exit 1
+else
+    echo "Configuring Compass Icons font"
+    cp "$COMPASS_ICONS" "assets/fonts/"
+    cp "$COMPASS_ICONS" "android/app/src/main/assets/fonts"
 fi
 
 ASSETS=$(node scripts/generate-assets.js)

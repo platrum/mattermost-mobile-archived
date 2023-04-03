@@ -1,7 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import keyMirror from '@mm-redux/utils/key_mirror';
+import keyMirror from '@utils/key_mirror';
 
 const languages: Record<string, string> = keyMirror({
     bg: null,
@@ -9,6 +9,7 @@ const languages: Record<string, string> = keyMirror({
     en: null,
     'en-AU': null,
     es: null,
+    fa: null,
     fr: null,
     hu: null,
     it: null,

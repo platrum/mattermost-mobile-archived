@@ -1,19 +1,20 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import type {PreferenceType} from '@mm-redux/types/preferences';
+import type ClientBase from './base';
 
 export interface ClientPreferencesMix {
     savePreferences: (userId: string, preferences: PreferenceType[]) => Promise<any>;
     deletePreferences: (userId: string, preferences: PreferenceType[]) => Promise<any>;
-    getMyPreferences: () => Promise<PreferenceType>;
+    getMyPreferences: () => Promise<PreferenceType[]>;
 }
 
-const ClientPreferences = (superclass: any) => class extends superclass {
+const ClientPreferences = <TBase extends Constructor<ClientBase>>(superclass: TBase) => class extends superclass {
     savePreferences = async (userId: string, preferences: PreferenceType[]) => {
+        this.analytics?.trackAPI('action_posts_flag');
         return this.doFetch(
             `${this.getPreferencesRoute(userId)}`,
-            {method: 'put', body: JSON.stringify(preferences)},
+            {method: 'put', body: preferences},
         );
     };
 
@@ -25,9 +26,10 @@ const ClientPreferences = (superclass: any) => class extends superclass {
     };
 
     deletePreferences = async (userId: string, preferences: PreferenceType[]) => {
+        this.analytics?.trackAPI('action_posts_unflag');
         return this.doFetch(
             `${this.getPreferencesRoute(userId)}/delete`,
-            {method: 'post', body: JSON.stringify(preferences)},
+            {method: 'post', body: preferences},
         );
     };
 };

@@ -5,7 +5,6 @@ import React from 'react';
 import {TouchableOpacity} from 'react-native';
 
 import CompassIcon from '@components/compass_icon';
-import {Theme} from '@mm-redux/types/theme';
 import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
@@ -15,10 +14,24 @@ interface Props {
     containerSize?: number;
     theme: Theme;
     testID?: string;
-    iconName: string;
+    iconName?: string;
 }
 
-const ClearButton = ({handlePress, iconName, size, containerSize, theme, testID}: Props) => {
+const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
+    return {
+        container: {
+            flex: 1,
+            alignItems: 'center',
+            justifyContent: 'center',
+        },
+        button: {
+            borderRadius: 1000,
+            color: changeOpacity(theme.centerChannelColor, 0.52),
+        },
+    };
+});
+
+const ClearButton = ({handlePress, iconName = 'close-circle', size = 20, containerSize = 40, theme, testID}: Props) => {
     const style = getStyleSheet(theme);
 
     return (
@@ -36,24 +49,4 @@ const ClearButton = ({handlePress, iconName, size, containerSize, theme, testID}
     );
 };
 
-ClearButton.defaultProps = {
-    size: 20,
-    containerSize: 40,
-    iconName: 'close-circle',
-};
-
 export default ClearButton;
-
-const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
-    return {
-        container: {
-            flex: 1,
-            alignItems: 'center',
-            justifyContent: 'center',
-        },
-        button: {
-            borderRadius: 1000,
-            color: changeOpacity(theme.centerChannelColor, 0.52),
-        },
-    };
-});

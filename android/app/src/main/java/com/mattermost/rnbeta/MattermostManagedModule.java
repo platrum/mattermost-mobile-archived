@@ -3,59 +3,95 @@ package com.mattermost.rnbeta;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.BroadcastReceiver;
-import android.os.Bundle;
-import android.provider.Settings;
-import android.view.WindowManager.LayoutParams;
-import android.util.ArraySet;
-import android.util.Log;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.ParcelFileDescriptor;
+import android.text.TextUtils;
+import android.webkit.MimeTypeMap;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.content.FileProvider;
 
-import java.util.Objects;
-import java.util.Set;
-
+import com.facebook.react.bridge.ActivityEventListener;
 import com.facebook.react.bridge.Arguments;
+import com.facebook.react.bridge.BaseActivityEventListener;
+import com.facebook.react.bridge.GuardedResultAsyncTask;
+import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
-import com.facebook.react.bridge.Promise;
+import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.bridge.LifecycleEventListener;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 
-public class MattermostManagedModule extends ReactContextBaseJavaModule implements LifecycleEventListener {
+import com.mattermost.helpers.Credentials;
+import com.reactlibrary.createthumbnail.CreateThumbnailModule;
+import com.mattermost.helpers.RealPathUtil;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.lang.ref.WeakReference;
+import java.net.URL;
+import java.nio.channels.FileChannel;
+import java.util.Objects;
+
+public class MattermostManagedModule extends ReactContextBaseJavaModule {
+    private static final String SAVE_EVENT = "MattermostManagedSaveFile";
+    private static final Integer SAVE_REQUEST = 38641;
     private static MattermostManagedModule instance;
+    private ReactApplicationContext reactContext;
 
-    private static final String TAG = MattermostManagedModule.class.getSimpleName();
-
-    private final IntentFilter restrictionsFilter =
-            new IntentFilter(Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED);
-
-    private final BroadcastReceiver restrictionsReceiver = new BroadcastReceiver() {
-        @Override public void onReceive(Context ctx, Intent intent) {
-            if (ctx != null) {
-                Bundle managedConfig = MainApplication.instance.loadManagedConfig(ctx);
-
-                // Check current configuration settings, change your app's UI and
-                // functionality as necessary.
-                Log.i(TAG, "Managed Configuration Changed");
-                sendConfigChanged(managedConfig);
-                handleBlurScreen(managedConfig);
-            }
-        }
-    };
+    private Promise mPickerPromise;
+    private String fileContent;
 
     private MattermostManagedModule(ReactApplicationContext reactContext) {
         super(reactContext);
-        reactContext.addLifecycleEventListener(this);
+        this.reactContext = reactContext;
+        // Let the document provider know you're done by closing the stream.
+        ActivityEventListener mActivityEventListener = new BaseActivityEventListener() {
+            @Override
+            public void onActivityResult(Activity activity, int requestCode, int resultCode, Intent intent) {
+                if (requestCode == SAVE_REQUEST) {
+                    if (mPickerPromise != null) {
+                        if (resultCode == Activity.RESULT_CANCELED) {
+                            mPickerPromise.reject(SAVE_EVENT, "Save operation cancelled");
+                        } else if (resultCode == Activity.RESULT_OK) {
+                            Uri uri = intent.getData();
+                            if (uri == null) {
+                                mPickerPromise.reject(SAVE_EVENT, "No data found");
+                            } else {
+                                try {
+                                    new SaveDataTask(reactContext, fileContent, uri).execute();
+                                    mPickerPromise.resolve(uri.toString());
+                                } catch (Exception e) {
+                                    mPickerPromise.reject(SAVE_EVENT, e.getMessage());
+                                }
+                            }
+                        }
+
+                        mPickerPromise = null;
+                    } else if (resultCode == Activity.RESULT_OK) {
+                        try {
+                            Uri uri = intent.getData();
+                            if (uri != null)
+                                new SaveDataTask(reactContext, fileContent, uri).execute();
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+            }
+        };
+        reactContext.addActivityEventListener(mActivityEventListener);
     }
 
     public static MattermostManagedModule getInstance(ReactApplicationContext reactContext) {
         if (instance == null) {
             instance = new MattermostManagedModule(reactContext);
+        } else {
+            instance.reactContext = reactContext;
         }
 
         return instance;
@@ -65,6 +101,13 @@ public class MattermostManagedModule extends ReactContextBaseJavaModule implemen
         return instance;
     }
 
+    public void sendEvent(String eventName,
+                           @Nullable WritableMap params) {
+        this.reactContext
+                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                .emit(eventName, params);
+    }
+
     @Override
     @NonNull
     public String getName() {
@@ -72,155 +115,149 @@ public class MattermostManagedModule extends ReactContextBaseJavaModule implemen
     }
 
     @ReactMethod
-    public void getConfig(final Promise promise) {
-        try {
-            Bundle config = MainApplication.instance.getManagedConfig();
+    public void getFilePath(String filePath, Promise promise) {
+        Activity currentActivity = getCurrentActivity();
+        WritableMap map = Arguments.createMap();
 
-            if (config != null) {
-                Object result = Arguments.fromBundle(config);
-                promise.resolve(result);
-            } else {
-                promise.resolve(Arguments.createMap());
+        if (currentActivity != null) {
+            Uri uri = Uri.parse(filePath);
+            String path = RealPathUtil.getRealPathFromURI(currentActivity, uri);
+            if (path != null) {
+                String text = "file://" + path;
+                map.putString("filePath", text);
             }
-        } catch (Exception e) {
-            promise.resolve(Arguments.createMap());
         }
+
+        promise.resolve(map);
     }
 
     @ReactMethod
-    // Close the current activity and open the security settings.
-    public void goToSecuritySettings() {
-        Intent intent = new Intent(Settings.ACTION_SECURITY_SETTINGS);
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        getReactApplicationContext().startActivity(intent);
-
-        Objects.requireNonNull(getCurrentActivity()).finish();
-        System.exit(0);
-    }
-
-    @ReactMethod
-    public void isRunningInSplitView(final Promise promise) {
-        WritableMap result = Arguments.createMap();
-        Activity current = getCurrentActivity();
-        if (current != null) {
-            result.putBoolean("isSplitView", current.isInMultiWindowMode());
+    public void saveFile(String path, final Promise promise) {
+        Uri contentUri;
+        String filename = "";
+        if(path.startsWith("content://")) {
+            contentUri = Uri.parse(path);
         } else {
-            result.putBoolean("isSplitView", false);
-        }
-
-        promise.resolve(result);
-    }
-
-    @ReactMethod
-    public void quitApp() {
-        Objects.requireNonNull(getCurrentActivity()).finish();
-        System.exit(0);
-    }
-
-    @Override
-    public void onHostResume() {
-        Activity activity = getCurrentActivity();
-        Bundle managedConfig = MainApplication.instance.getManagedConfig();
-
-        if (activity != null && managedConfig != null) {
-            activity.registerReceiver(restrictionsReceiver, restrictionsFilter);
-        }
-
-        ReactContext ctx = MainApplication.instance.getRunningReactContext();
-        Bundle newManagedConfig = null;
-        if (ctx != null) {
-            newManagedConfig = MainApplication.instance.loadManagedConfig(ctx);
-            if (!equalBundles(newManagedConfig, managedConfig)) {
-                Log.i(TAG, "onResumed Managed Configuration Changed");
-                sendConfigChanged(newManagedConfig);
+            File newFile = new File(path);
+            filename = newFile.getName();
+            Activity currentActivity = getCurrentActivity();
+            if(currentActivity == null) {
+                promise.reject(SAVE_EVENT, "Activity doesn't exist");
+                return;
             }
-        }
-
-        handleBlurScreen(newManagedConfig);
-    }
-
-    @Override
-    public void onHostPause() {
-        Activity activity = getCurrentActivity();
-        Bundle managedConfig = MainApplication.instance.getManagedConfig();
-
-        if (activity != null && managedConfig != null) {
             try {
-                activity.unregisterReceiver(restrictionsReceiver);
-            } catch (IllegalArgumentException e) {
-                // Just ignore this cause the receiver wasn't registered for this activity
+                final String packageName = currentActivity.getPackageName();
+                final String authority = packageName + ".provider";
+                contentUri = FileProvider.getUriForFile(currentActivity, authority, newFile);
+            }
+            catch(IllegalArgumentException e) {
+                promise.reject(SAVE_EVENT, e.getMessage());
+                return;
             }
         }
-    }
 
-    @Override
-    public void onHostDestroy() {
-    }
-
-    private void handleBlurScreen(Bundle config) {
-        Activity activity = getCurrentActivity();
-        boolean blurAppScreen = false;
-
-        if (config != null) {
-            blurAppScreen = Boolean.parseBoolean(config.getString("blurApplicationScreen"));
+        if(contentUri == null) {
+            promise.reject(SAVE_EVENT, "Invalid file");
+            return;
         }
 
-        assert activity != null;
-        if (blurAppScreen) {
-            activity.getWindow().setFlags(LayoutParams.FLAG_SECURE, LayoutParams.FLAG_SECURE);
+        String extension = MimeTypeMap.getFileExtensionFromUrl(path).toLowerCase();
+        String mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension);
+        if (mimeType == null) {
+            mimeType = RealPathUtil.getMimeType(path);
+        }
+
+        Intent intent = new Intent();
+        intent.setAction(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType(mimeType);
+        intent.putExtra(Intent.EXTRA_TITLE, filename);
+
+        PackageManager pm = Objects.requireNonNull(getCurrentActivity()).getPackageManager();
+        if (intent.resolveActivity(pm) != null) {
+            try {
+                getCurrentActivity().startActivityForResult(intent, SAVE_REQUEST);
+                mPickerPromise = promise;
+                fileContent = path;
+            }
+            catch(Exception e) {
+                promise.reject(SAVE_EVENT, e.getMessage());
+            }
         } else {
-            activity.getWindow().clearFlags(LayoutParams.FLAG_SECURE);
+            try {
+                if(mimeType == null) {
+                    throw new Exception("It wasn't possible to detect the type of the file");
+                }
+                throw new Exception("No app associated with this mime type");
+            }
+            catch(Exception e) {
+                promise.reject(SAVE_EVENT, e.getMessage());
+            }
         }
     }
 
-    private void sendConfigChanged(Bundle config) {
-        WritableMap result = Arguments.createMap();
-        if (config != null) {
-            result = Arguments.fromBundle(config);
-        }
-        ReactContext ctx = MainApplication.instance.getRunningReactContext();
-
-        if (ctx != null) {
-            ctx.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                .emit("managedConfigDidChange", result);
+    @ReactMethod
+    public void createThumbnail(ReadableMap options, Promise promise) {
+        try {
+            WritableMap optionsMap = Arguments.createMap();
+            optionsMap.merge(options);
+            String url = options.hasKey("url") ? options.getString("url") : "";
+            URL videoUrl = new URL(url);
+            String serverUrl = videoUrl.getProtocol() + "://" + videoUrl.getHost() + ":" + videoUrl.getPort();
+            String token = Credentials.getCredentialsForServerSync(this.reactContext, serverUrl);
+            if (!TextUtils.isEmpty(token)) {
+                WritableMap headers = Arguments.createMap();
+                if (optionsMap.hasKey("headers")) {
+                    headers.merge(Objects.requireNonNull(optionsMap.getMap("headers")));
+                }
+                headers.putString("Authorization", "Bearer " + token);
+                optionsMap.putMap("headers", headers);
+            }
+            CreateThumbnailModule thumb = new CreateThumbnailModule(this.reactContext);
+            thumb.create(optionsMap.copy(), promise);
+        } catch (Exception e) {
+            promise.reject("CreateThumbnail_ERROR", e);
         }
     }
 
-    private boolean equalBundles(Bundle one, Bundle two) {
-        if (one == null && two == null) {
-            return true;
+    private static class SaveDataTask extends GuardedResultAsyncTask<Object> {
+        private final WeakReference<Context> weakContext;
+        private final String fromFile;
+        private final Uri toFile;
+
+        protected SaveDataTask(ReactApplicationContext reactContext, String path, Uri destination) {
+            super(reactContext.getExceptionHandler());
+            weakContext = new WeakReference<>(reactContext.getApplicationContext());
+            fromFile = path;
+            toFile = destination;
         }
 
-        if (one == null || two == null)
-            return false;
-
-        if(one.size() != two.size())
-            return false;
-
-        Set<String> setOne = new ArraySet<>();
-        setOne.addAll(one.keySet());
-        setOne.addAll(two.keySet());
-        Object valueOne;
-        Object valueTwo;
-
-        for(String key : setOne) {
-            if (!one.containsKey(key) || !two.containsKey(key))
-                return false;
-
-            valueOne = one.get(key);
-            valueTwo = two.get(key);
-            if(valueOne instanceof Bundle && valueTwo instanceof Bundle &&
-                    !equalBundles((Bundle) valueOne, (Bundle) valueTwo)) {
-                return false;
+        @Override
+        protected Object doInBackgroundGuarded() {
+            try {
+                ParcelFileDescriptor pfd = weakContext.get().getContentResolver().openFileDescriptor(toFile, "w");
+                File input = new File(this.fromFile);
+                try (FileInputStream fileInputStream = new FileInputStream(input)) {
+                    try (FileOutputStream fileOutputStream = new FileOutputStream(pfd.getFileDescriptor())) {
+                        FileChannel source = fileInputStream.getChannel();
+                        FileChannel dest = fileOutputStream.getChannel();
+                        dest.transferFrom(source, 0, source.size());
+                        source.close();
+                        dest.close();
+                    }
+                }
+                pfd.close();
+            } catch (Exception e) {
+                e.printStackTrace();
             }
-            else if(valueOne == null) {
-                if(valueTwo != null)
-                    return false;
-            }
-            else if(!valueOne.equals(valueTwo))
-                return false;
+
+            return null;
         }
 
-        return true;
+        @Override
+        protected void onPostExecuteGuarded(Object o) {
+
+        }
     }
 }

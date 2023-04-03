@@ -42,12 +42,23 @@ function setup() {
         npm run clean || exit 1
         npm install --ignore-scripts || exit 1
         npx patch-package || exit 1
+        node node_modules/react-native-webrtc/tools/downloadWebRTC.js || exit 1
 
         if [[ "$1" == "ios"* ]]; then
           echo "Installing Gems"
           npm run ios-gems &> /dev/null || exit 1
           echo "Getting Cocoapods dependencies"
           npm run pod-install || exit 1
+        fi
+
+        COMPASS_ICONS="node_modules/@mattermost/compass-icons/font/compass-icons.ttf"
+        if [ -z "$COMPASS_ICONS" ]; then
+            echo "Compass Icons font not found"
+            exit 1
+        else
+            echo "Configuring Compass Icons font"
+            cp "$COMPASS_ICONS" "assets/fonts/"
+            cp "$COMPASS_ICONS" "android/app/src/main/assets/fonts"
         fi
 
         ASSETS=$(node scripts/generate-assets.js)
@@ -60,7 +71,7 @@ function setup() {
 
         echo "Installing Fastane"
         if !gem list bundler -i --version 2.1.4 > /dev/null 2>&1; then
-          gem install bundler --version 2.1.4
+          gem install bundler --versio 2.1.4
         fi
         cd fastlane && bundle install && cd .. || exit 1
     fi

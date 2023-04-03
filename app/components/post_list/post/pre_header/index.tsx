@@ -6,18 +6,16 @@ import {View} from 'react-native';
 
 import CompassIcon from '@components/compass_icon';
 import FormattedText from '@components/formatted_text';
-import {t} from '@utils/i18n';
+import {useTheme} from '@context/theme';
+import {t} from '@i18n';
 import {makeStyleSheetFromTheme} from '@utils/theme';
-
-import type {Theme} from '@mm-redux/types/theme';
 
 type PreHeaderProps = {
     isConsecutivePost?: boolean;
-    isFlagged?: boolean;
+    isSaved?: boolean;
     isPinned: boolean;
-    skipFlaggedHeader?: boolean;
+    skipSavedHeader?: boolean;
     skipPinnedHeader?: boolean;
-    theme: Theme;
 }
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
@@ -26,7 +24,6 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
             flex: 1,
             flexDirection: 'row',
             height: 15,
-            marginLeft: 10,
             marginRight: 10,
             marginTop: 10,
         },
@@ -59,14 +56,15 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     };
 });
 
-const PreHeader = ({isConsecutivePost, isFlagged, isPinned, skipFlaggedHeader, skipPinnedHeader, theme}: PreHeaderProps) => {
+const PreHeader = ({isConsecutivePost, isSaved, isPinned, skipSavedHeader, skipPinnedHeader}: PreHeaderProps) => {
+    const theme = useTheme();
     const style = getStyleSheet(theme);
-    const isPinnedAndFlagged = isPinned && isFlagged && !skipFlaggedHeader && !skipPinnedHeader;
+    const isPinnedAndSaved = isPinned && isSaved && !skipSavedHeader && !skipPinnedHeader;
 
     let text;
-    if (isPinnedAndFlagged) {
+    if (isPinnedAndSaved) {
         text = {
-            id: t('mobile.post_pre_header.pinned_flagged'),
+            id: t('mobile.post_pre_header.pinned_saved'),
             defaultMessage: 'Pinned and Saved',
         };
     } else if (isPinned && !skipPinnedHeader) {
@@ -74,9 +72,9 @@ const PreHeader = ({isConsecutivePost, isFlagged, isPinned, skipFlaggedHeader, s
             id: t('mobile.post_pre_header.pinned'),
             defaultMessage: 'Pinned',
         };
-    } else if (isFlagged && !skipFlaggedHeader) {
+    } else if (isSaved && !skipSavedHeader) {
         text = {
-            id: t('mobile.post_pre_header.flagged'),
+            id: t('mobile.post_pre_header.saved'),
             defaultMessage: 'Saved',
         };
     }
@@ -90,17 +88,17 @@ const PreHeader = ({isConsecutivePost, isFlagged, isPinned, skipFlaggedHeader, s
             <View style={style.iconsContainer}>
                 {isPinned && !skipPinnedHeader &&
                 <CompassIcon
-                    name='pin-outline'
+                    name='pin'
                     size={14}
                     style={style.icon}
                 />
                 }
-                {isPinnedAndFlagged &&
+                {isPinnedAndSaved &&
                 <View style={style.iconsSeparator}/>
                 }
-                {isFlagged && !skipFlaggedHeader &&
+                {isSaved && !skipSavedHeader &&
                 <CompassIcon
-                    name='bookmark-outline'
+                    name='bookmark'
                     size={14}
                     style={style.icon}
                 />

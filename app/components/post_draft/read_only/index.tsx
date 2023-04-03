@@ -1,46 +1,18 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {ReactNode} from 'react';
+import React from 'react';
 import {View} from 'react-native';
-import {SafeAreaView} from 'react-native-safe-area-context';
+import {Edge, SafeAreaView} from 'react-native-safe-area-context';
 
 import CompassIcon from '@components/compass_icon';
 import FormattedText from '@components/formatted_text';
+import {useTheme} from '@context/theme';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
-
-import type {Theme} from '@mm-redux/types/theme';
 
 interface ReadOnlyProps {
     testID?: string;
-    theme: Theme;
 }
-
-const ReadOnlyChannnel = ({testID, theme}: ReadOnlyProps): ReactNode => {
-    const style = getStyle(theme);
-    return (
-        <SafeAreaView
-            edges={['bottom']}
-            style={style.background}
-        >
-            <View
-                testID={testID}
-                style={style.container}
-            >
-                <CompassIcon
-                    name='glasses'
-                    style={style.icon}
-                    color={theme.centerChannelColor}
-                />
-                <FormattedText
-                    id='mobile.create_post.read_only'
-                    defaultMessage='This channel is read-only.'
-                    style={style.text}
-                />
-            </View>
-        </SafeAreaView>
-    );
-};
 
 const getStyle = makeStyleSheetFromTheme((theme: Theme) => ({
     background: {
@@ -67,5 +39,34 @@ const getStyle = makeStyleSheetFromTheme((theme: Theme) => ({
         opacity: 0.56,
     },
 }));
+
+const edges: Edge[] = ['bottom'];
+
+const ReadOnlyChannnel = ({testID}: ReadOnlyProps) => {
+    const theme = useTheme();
+    const style = getStyle(theme);
+    return (
+        <SafeAreaView
+            edges={edges}
+            style={style.background}
+        >
+            <View
+                testID={testID}
+                style={style.container}
+            >
+                <CompassIcon
+                    name='glasses'
+                    style={style.icon}
+                    color={theme.centerChannelColor}
+                />
+                <FormattedText
+                    id='mobile.create_post.read_only'
+                    defaultMessage='This channel is read-only.'
+                    style={style.text}
+                />
+            </View>
+        </SafeAreaView>
+    );
+};
 
 export default ReadOnlyChannnel;

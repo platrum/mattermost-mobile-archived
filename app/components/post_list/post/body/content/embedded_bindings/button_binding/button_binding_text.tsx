@@ -6,7 +6,7 @@ import {Text, View, StyleSheet, StyleProp, TextStyle} from 'react-native';
 
 import Emoji from '@components/emoji';
 import {reEmoji, reEmoticon, reMain} from '@constants/emoji';
-import {getEmoticonName} from '@utils/emoji_utils';
+import {getEmoticonName} from '@utils/emoji/helpers';
 
 type Props = {
     message: string;
@@ -22,7 +22,7 @@ const styles = StyleSheet.create({
 });
 
 const ButtonBindingText = ({message, style}: Props) => {
-    const components = [] as React.ReactNode[];
+    const components: React.ReactNode[] = [];
 
     let text = message;
     while (text) {

@@ -1,34 +1,24 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {StyleProp, ViewStyle} from 'react-native';
-import {connect} from 'react-redux';
+import {withDatabase} from '@nozbe/watermelondb/DatabaseProvider';
+import enhance from '@nozbe/with-observables';
 
-import {getConfig} from '@mm-redux/selectors/entities/general';
-import {getUser} from '@mm-redux/selectors/entities/users';
+import {observePostAuthor} from '@queries/servers/post';
+import {observeConfigBooleanValue} from '@queries/servers/system';
 
 import Avatar from './avatar';
 
-import type {Post} from '@mm-redux/types/posts';
-import type {GlobalState} from '@mm-redux/types/store';
-import type {Theme} from '@mm-redux/types/theme';
+import type {WithDatabaseArgs} from '@typings/database/database';
+import type PostModel from '@typings/database/models/servers/post';
 
-type OwnProps = {
-    pendingPostStyle?: StyleProp<ViewStyle>;
-    post: Post;
-    theme: Theme;
-}
-
-function mapStateToProps(state: GlobalState, ownProps: OwnProps) {
-    const {post} = ownProps;
-    const config = getConfig(state);
-    const user = getUser(state, post.user_id);
+const withPost = enhance(['post'], ({database, post}: {post: PostModel} & WithDatabaseArgs) => {
+    const enablePostIconOverride = observeConfigBooleanValue(database, 'EnablePostIconOverride');
 
     return {
-        enablePostIconOverride: config.EnablePostIconOverride === 'true',
-        userId: post.user_id,
-        isBot: (user ? user.is_bot : false),
+        author: observePostAuthor(database, post),
+        enablePostIconOverride,
     };
-}
+});
 
-export default connect(mapStateToProps)(Avatar);
+export default withDatabase(withPost(Avatar));

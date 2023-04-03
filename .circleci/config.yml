@@ -1,32 +1,37 @@
 version: 2.1
 orbs:
   owasp: entur/owasp@0.0.10
-  node: circleci/node@4.5.1
+  node: circleci/node@5.0.3
 
 executors:
   android:
     parameters:
       resource_class:
-        default: large
+        default: xlarge
         type: string
     environment:
       NODE_OPTIONS: --max_old_space_size=12000
       NODE_ENV: production
       BABEL_ENV: production
     docker:
-      - image: circleci/android:api-30-node
+      - image: cimg/android:2022.09.2-node
     working_directory: ~/mattermost-mobile
     resource_class: <<parameters.resource_class>>
 
   ios:
+    parameters:
+      resource_class:
+        default: medium
+        type: string
     environment:
       NODE_OPTIONS: --max_old_space_size=12000
       NODE_ENV: production
       BABEL_ENV: production
     macos:
-      xcode: "13.0.0"
+      xcode: "14.2.0"
     working_directory: ~/mattermost-mobile
     shell: /bin/bash --login -o pipefail
+    resource_class: <<parameters.resource_class>>
 
 commands:
   checkout-private:
@@ -34,7 +39,7 @@ commands:
     steps:
       - add_ssh_keys:
           fingerprints:
-            - "59:4d:99:5e:1c:6d:30:36:6d:60:76:88:ff:a7:ab:63"
+            - "03:1c:a7:07:35:bc:57:e4:1d:6c:e1:2c:4b:be:09:6d"
       - run:
           name: Clone the mobile private repo
           command: git clone git@github.com:mattermost/mattermost-mobile-private.git ~/mattermost-mobile-private
@@ -83,6 +88,13 @@ commands:
       - run:
           name: Generate assets
           command: node ./scripts/generate-assets.js
+      - run:
+          name: Compass Icons
+          environment:
+            COMPASS_ICONS: "node_modules/@mattermost/compass-icons/font/compass-icons.ttf"
+          command: |
+            cp "$COMPASS_ICONS" "assets/fonts/"
+            cp "$COMPASS_ICONS" "android/app/src/main/assets/fonts"
       - save_cache:
           name: Save assets cache
           key: v1-assets-{{ checksum "assets/base/config.json" }}-{{ arch }}
@@ -93,14 +105,16 @@ commands:
     description: "Get JavaScript dependencies"
     steps:
       - node/install:
-          node-version: '16.2.0'
-          install-npm: false
+          node-version: '18.7.0'
       - restore_cache:
           name: Restore npm cache
           key: v2-npm-{{ checksum "package.json" }}-{{ arch }}
       - run:
           name: Getting JavaScript dependencies
-          command: NODE_ENV=development npm ci --ignore-scripts
+          command: |
+            NODE_ENV=development npm ci --ignore-scripts
+            node node_modules/\@sentry/cli/scripts/install.js
+            node node_modules/react-native-webrtc/tools/downloadWebRTC.js
       - save_cache:
           name: Save npm cache
           key: v2-npm-{{ checksum "package.json" }}-{{ arch }}
@@ -184,13 +198,15 @@ commands:
         type: string
       file:
         type: string
+      env:
+        type: string
     steps:
       - attach_workspace:
           at: ~/
       - run:
           name: <<parameters.task>>
           working_directory: fastlane
-          command: bundle exec fastlane <<parameters.target>> deploy file:$HOME/mattermost-mobile/<<parameters.file>>
+          command: <<parameters.env>> bundle exec fastlane <<parameters.target>> deploy file:$HOME/mattermost-mobile/<<parameters.file>>
 
   persist:
     description: "Persist mattermost-mobile directory"
@@ -218,7 +234,7 @@ jobs:
   test:
     working_directory: ~/mattermost-mobile
     docker:
-      - image: circleci/node:10
+      - image: cimg/node:16.14.2
     steps:
       - checkout:
           path: ~/mattermost-mobile
@@ -286,6 +302,14 @@ jobs:
           name: Post results to Mattermost
           command: go run ../security-automation-config/dependency-check/post_results.go
 
+  build-android-beta:
+    executor: android
+    steps:
+      - build-android
+      - persist
+      - save:
+          filename: "*.apk"
+
   build-android-release:
     executor: android
     steps:
@@ -324,6 +348,16 @@ jobs:
       - persist
       - save:
           filename: "*.apk"
+
+  build-ios-beta:
+    executor:
+      name: ios
+      resource_class: large
+    steps:
+      - build-ios
+      - persist
+      - save:
+          filename: "*.ipa"
 
   build-ios-release:
     executor: ios
@@ -399,6 +433,18 @@ jobs:
           task: "Deploy to Google Play"
           target: android
           file: "*.apk"
+          env: "SUPPLY_TRACK=beta"
+
+  deploy-android-beta:
+    executor:
+      name: android
+      resource_class: medium
+    steps:
+      - deploy-to-store:
+          task: "Deploy to Google Play"
+          target: android
+          file: "*.apk"
+          env: "SUPPLY_TRACK=alpha"
 
   deploy-ios-release:
     executor: ios
@@ -407,6 +453,16 @@ jobs:
           task: "Deploy to TestFlight"
           target: ios
           file: "*.ipa"
+          env: ""
+
+  deploy-ios-beta:
+    executor: ios
+    steps:
+      - deploy-to-store:
+          task: "Deploy to TestFlight"
+          target: ios
+          file: "*.ipa"
+          env: ""
 
   github-release:
     executor:
@@ -437,8 +493,7 @@ workflows:
           filters:
             branches:
               only:
-                - /^build-\d+$/
-                - /^build-android-\d+$/
+                - /^build-release-\d+$/
                 - /^build-android-release-\d+$/
       - deploy-android-release:
           context: mattermost-mobile-android-release
@@ -447,9 +502,27 @@ workflows:
           filters:
             branches:
               only:
+                - /^build-release-\d+$/
+                - /^build-android-release-\d+$/
+
+      - build-android-beta:
+          context: mattermost-mobile-android-beta
+          filters:
+            branches:
+              only:
                 - /^build-\d+$/
                 - /^build-android-\d+$/
-                - /^build-android-release-\d+$/
+                - /^build-android-beta-\d+$/
+      - deploy-android-beta:
+          context: mattermost-mobile-android-beta
+          requires:
+            - build-android-beta
+          filters:
+            branches:
+              only:
+                - /^build-\d+$/
+                - /^build-android-\d+$/
+                - /^build-android-beta-\d+$/
 
       - build-ios-release:
           context: mattermost-mobile-ios-release
@@ -458,8 +531,7 @@ workflows:
           filters:
             branches:
               only:
-                - /^build-\d+$/
-                - /^build-ios-\d+$/
+                - /^build-release-\d+$/
                 - /^build-ios-release-\d+$/
       - deploy-ios-release:
           context: mattermost-mobile-ios-release
@@ -468,9 +540,27 @@ workflows:
           filters:
             branches:
               only:
+                - /^build-release-\d+$/
+                - /^build-ios-release-\d+$/
+
+      - build-ios-beta:
+          context: mattermost-mobile-ios-beta
+          filters:
+            branches:
+              only:
                 - /^build-\d+$/
                 - /^build-ios-\d+$/
-                - /^build-ios-release-\d+$/
+                - /^build-ios-beta-\d+$/
+      - deploy-ios-beta:
+          context: mattermost-mobile-ios-beta
+          requires:
+            - build-ios-beta
+          filters:
+            branches:
+              only:
+                - /^build-\d+$/
+                - /^build-ios-\d+$/
+                - /^build-ios-beta-\d+$/
 
       - build-android-pr:
           context: mattermost-mobile-android-pr
@@ -513,9 +603,9 @@ workflows:
             branches:
               only:
                 - /^build-\d+$/
-                - /^build-ios-\d+$/
+                - /^build-release-\d+$/
                 - /^build-ios-sim-\d+$/
-                
+
       - github-release:
           context: mattermost-mobile-unsigned
           requires:

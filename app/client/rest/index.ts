@@ -1,13 +1,13 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import ClientCalls, {ClientCallsMix} from '@calls/client/rest';
 import ClientPlugins, {ClientPluginsMix} from '@client/rest/plugins';
-import ClientCalls, {ClientCallsMix} from '@mmproducts/calls/client/rest';
 import mix from '@utils/mix';
 
 import ClientApps, {ClientAppsMix} from './apps';
 import ClientBase from './base';
-import ClientBots, {ClientBotsMix} from './bots';
+import ClientCategories, {ClientCategoriesMix} from './categories';
 import ClientChannels, {ClientChannelsMix} from './channels';
 import {DEFAULT_LIMIT_AFTER, DEFAULT_LIMIT_BEFORE, HEADER_X_VERSION_ID} from './constants';
 import ClientEmojis, {ClientEmojisMix} from './emojis';
@@ -15,16 +15,19 @@ import ClientFiles, {ClientFilesMix} from './files';
 import ClientGeneral, {ClientGeneralMix} from './general';
 import ClientGroups, {ClientGroupsMix} from './groups';
 import ClientIntegrations, {ClientIntegrationsMix} from './integrations';
+import ClientNPS, {ClientNPSMix} from './nps';
 import ClientPosts, {ClientPostsMix} from './posts';
 import ClientPreferences, {ClientPreferencesMix} from './preferences';
-import ClientSharedChannels, {ClientSharedChannelsMix} from './shared_channels';
 import ClientTeams, {ClientTeamsMix} from './teams';
+import ClientThreads, {ClientThreadsMix} from './threads';
 import ClientTos, {ClientTosMix} from './tos';
 import ClientUsers, {ClientUsersMix} from './users';
 
+import type {APIClientInterface} from '@mattermost/react-native-network-client';
+
 interface Client extends ClientBase,
     ClientAppsMix,
-    ClientBotsMix,
+    ClientCategoriesMix,
     ClientChannelsMix,
     ClientEmojisMix,
     ClientFilesMix,
@@ -33,17 +36,18 @@ interface Client extends ClientBase,
     ClientIntegrationsMix,
     ClientPostsMix,
     ClientPreferencesMix,
-    ClientSharedChannelsMix,
     ClientTeamsMix,
+    ClientThreadsMix,
     ClientTosMix,
     ClientUsersMix,
     ClientCallsMix,
-    ClientPluginsMix
+    ClientPluginsMix,
+    ClientNPSMix
 {}
 
 class Client extends mix(ClientBase).with(
     ClientApps,
-    ClientBots,
+    ClientCategories,
     ClientChannels,
     ClientEmojis,
     ClientFiles,
@@ -52,14 +56,18 @@ class Client extends mix(ClientBase).with(
     ClientIntegrations,
     ClientPosts,
     ClientPreferences,
-    ClientSharedChannels,
     ClientTeams,
+    ClientThreads,
     ClientTos,
     ClientUsers,
     ClientCalls,
     ClientPlugins,
-) {}
+    ClientNPS,
+) {
+    // eslint-disable-next-line no-useless-constructor
+    constructor(apiClient: APIClientInterface, serverUrl: string, bearerToken?: string, csrfToken?: string) {
+        super(apiClient, serverUrl, bearerToken, csrfToken);
+    }
+}
 
-const Client4 = new Client();
-
-export {Client4, Client, DEFAULT_LIMIT_AFTER, DEFAULT_LIMIT_BEFORE, HEADER_X_VERSION_ID};
+export {Client, DEFAULT_LIMIT_AFTER, DEFAULT_LIMIT_BEFORE, HEADER_X_VERSION_ID};

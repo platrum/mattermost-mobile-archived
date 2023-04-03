@@ -1,14 +1,22 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {IntegrationTypes} from '@mm-redux/action_types';
-import {ActionResult, DispatchFunc} from '@mm-redux/types/actions';
-import {WebSocketMessage} from '@mm-redux/types/websocket';
+import IntegrationsManager from '@managers/integrations_manager';
+import {getActiveServerUrl} from '@queries/app/servers';
 
-export function handleOpenDialogEvent(msg: WebSocketMessage) {
-    return (dispatch: DispatchFunc): ActionResult => {
-        const data = (msg.data && msg.data.dialog) || {};
-        dispatch({type: IntegrationTypes.RECEIVED_DIALOG, data: JSON.parse(data)});
-        return {data: true};
-    };
+export async function handleOpenDialogEvent(serverUrl: string, msg: WebSocketMessage) {
+    const data: string = msg.data?.dialog;
+    if (!data) {
+        return;
+    }
+
+    try {
+        const dialog: InteractiveDialogConfig = JSON.parse(data);
+        const currentServer = await getActiveServerUrl();
+        if (currentServer === serverUrl) {
+            IntegrationsManager.getManager(serverUrl).setDialog(dialog);
+        }
+    } catch {
+        // Do nothing
+    }
 }

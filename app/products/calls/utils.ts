@@ -1,9 +1,18 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {Dictionary} from '@mm-redux/types/utilities';
-import {displayUsername} from '@mm-redux/utils/user_utils';
-import {CallParticipant} from '@mmproducts/calls/store/types/calls';
+import {Alert} from 'react-native';
+
+import {Post} from '@constants';
+import Calls from '@constants/calls';
+import {isMinimumServerVersion} from '@utils/helpers';
+import {displayUsername} from '@utils/user';
+
+import type {CallParticipant} from '@calls/types/calls';
+import type {CallsConfig} from '@mattermost/calls/lib/types';
+import type PostModel from '@typings/database/models/servers/post';
+import type {IntlShape} from 'react-intl';
+import type {RTCIceServer} from 'react-native-webrtc';
 
 export function sortParticipants(teammateNameDisplay: string, participants?: Dictionary<CallParticipant>, presenterID?: string): CallParticipant[] {
     if (!participants) {
@@ -17,8 +26,8 @@ export function sortParticipants(teammateNameDisplay: string, participants?: Dic
 
 const sortByName = (teammateNameDisplay: string) => {
     return (a: CallParticipant, b: CallParticipant) => {
-        const nameA = displayUsername(a.profile, teammateNameDisplay);
-        const nameB = displayUsername(b.profile, teammateNameDisplay);
+        const nameA = displayUsername(a.userModel, teammateNameDisplay);
+        const nameB = displayUsername(b.userModel, teammateNameDisplay);
         return nameA.localeCompare(nameB);
     };
 };
@@ -31,12 +40,6 @@ const sortByState = (presenterID?: string) => {
             return 1;
         }
 
-        if (!a.muted && b.muted) {
-            return -1;
-        } else if (!b.muted && a.muted) {
-            return 1;
-        }
-
         if (a.raisedHand && !b.raisedHand) {
             return -1;
         } else if (b.raisedHand && !a.raisedHand) {
@@ -45,17 +48,81 @@ const sortByState = (presenterID?: string) => {
             return a.raisedHand - b.raisedHand;
         }
 
+        if (!a.muted && b.muted) {
+            return -1;
+        } else if (!b.muted && a.muted) {
+            return 1;
+        }
+
         return 0;
     };
 };
 
-export function getUserIdFromDM(dmName: string, currentUserId: string) {
-    const ids = dmName.split('__');
-    let otherUserId = '';
-    if (ids[0] === currentUserId) {
-        otherUserId = ids[1];
-    } else {
-        otherUserId = ids[0];
+export function isSupportedServerCalls(serverVersion?: string) {
+    if (serverVersion) {
+        return isMinimumServerVersion(
+            serverVersion,
+            Calls.RequiredServer.MAJOR_VERSION,
+            Calls.RequiredServer.MIN_VERSION,
+            Calls.RequiredServer.PATCH_VERSION,
+        );
     }
-    return otherUserId;
+
+    return false;
+}
+
+export function isCallsCustomMessage(post: PostModel | Post): boolean {
+    return Boolean(post.type && post.type === Post.POST_TYPES.CUSTOM_CALLS);
+}
+
+export function idsAreEqual(a: string[], b: string[]) {
+    if (a.length !== b.length) {
+        return false;
+    }
+
+    // We can assume ids are unique
+    // Doing a quick search indicated objects are tuned better than Map or Set
+    const obj = a.reduce((prev, cur) => {
+        prev[cur] = true;
+        return prev;
+    }, {} as Record<string, boolean>);
+
+    for (let i = 0; i < b.length; i++) {
+        if (!obj.hasOwnProperty(b[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+export function errorAlert(error: string, intl: IntlShape) {
+    Alert.alert(
+        intl.formatMessage({
+            id: 'mobile.calls_error_title',
+            defaultMessage: 'Error',
+        }),
+        intl.formatMessage({
+            id: 'mobile.calls_error_message',
+            defaultMessage: 'Error: {error}',
+        }, {error}),
+    );
+}
+
+export function getICEServersConfigs(config: CallsConfig): RTCIceServer[] {
+    // if ICEServersConfigs is set, we can trust this to be complete and
+    // coming from an updated API.
+    if (config.ICEServersConfigs && config.ICEServersConfigs.length > 0) {
+        return config.ICEServersConfigs;
+    }
+
+    // otherwise we revert to using the now deprecated field.
+    if (config.ICEServers && config.ICEServers.length > 0) {
+        return [
+            {
+                urls: config.ICEServers,
+            },
+        ];
+    }
+
+    return [];
 }

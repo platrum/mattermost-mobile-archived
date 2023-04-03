@@ -1,45 +1,47 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {analytics} from '@init/analytics';
-import {Team, TeamMembership, TeamUnread} from '@mm-redux/types/teams';
-import {buildQueryString} from '@mm-redux/utils/helpers';
+import {buildQueryString} from '@utils/helpers';
 
 import {PER_PAGE_DEFAULT} from './constants';
+
+import type ClientBase from './base';
 
 export interface ClientTeamsMix {
     createTeam: (team: Team) => Promise<Team>;
     deleteTeam: (teamId: string) => Promise<any>;
     updateTeam: (team: Team) => Promise<Team>;
     patchTeam: (team: Partial<Team> & {id: string}) => Promise<Team>;
-    getTeams: (page?: number, perPage?: number, includeTotalCount?: boolean) => Promise<any>;
+    getTeams: (page?: number, perPage?: number, includeTotalCount?: boolean) => Promise<Team[]>;
     getTeam: (teamId: string) => Promise<Team>;
     getTeamByName: (teamName: string) => Promise<Team>;
     getMyTeams: () => Promise<Team[]>;
     getTeamsForUser: (userId: string) => Promise<Team[]>;
     getMyTeamMembers: () => Promise<TeamMembership[]>;
-    getMyTeamUnreads: () => Promise<TeamUnread[]>;
     getTeamMembers: (teamId: string, page?: number, perPage?: number) => Promise<TeamMembership[]>;
     getTeamMember: (teamId: string, userId: string) => Promise<TeamMembership>;
+    getTeamMembersByIds: (teamId: string, userIds: string[]) => Promise<TeamMembership[]>;
     addToTeam: (teamId: string, userId: string) => Promise<TeamMembership>;
+    addUsersToTeamGracefully: (teamId: string, userIds: string[]) => Promise<TeamMemberWithError[]>;
+    sendEmailInvitesToTeamGracefully: (teamId: string, emails: string[]) => Promise<TeamInviteWithError[]>;
     joinTeam: (inviteId: string) => Promise<TeamMembership>;
     removeFromTeam: (teamId: string, userId: string) => Promise<any>;
     getTeamStats: (teamId: string) => Promise<any>;
     getTeamIconUrl: (teamId: string, lastTeamIconUpdate: number) => string;
 }
 
-const ClientTeams = (superclass: any) => class extends superclass {
+const ClientTeams = <TBase extends Constructor<ClientBase>>(superclass: TBase) => class extends superclass {
     createTeam = async (team: Team) => {
-        analytics.trackAPI('api_teams_create');
+        this.analytics?.trackAPI('api_teams_create');
 
         return this.doFetch(
             `${this.getTeamsRoute()}`,
-            {method: 'post', body: JSON.stringify(team)},
+            {method: 'post', body: team},
         );
     };
 
     deleteTeam = async (teamId: string) => {
-        analytics.trackAPI('api_teams_delete');
+        this.analytics?.trackAPI('api_teams_delete');
 
         return this.doFetch(
             `${this.getTeamRoute(teamId)}`,
@@ -48,20 +50,20 @@ const ClientTeams = (superclass: any) => class extends superclass {
     };
 
     updateTeam = async (team: Team) => {
-        analytics.trackAPI('api_teams_update_name', {team_id: team.id});
+        this.analytics?.trackAPI('api_teams_update_name', {team_id: team.id});
 
         return this.doFetch(
             `${this.getTeamRoute(team.id)}`,
-            {method: 'put', body: JSON.stringify(team)},
+            {method: 'put', body: team},
         );
     };
 
     patchTeam = async (team: Partial<Team> & {id: string}) => {
-        analytics.trackAPI('api_teams_patch_name', {team_id: team.id});
+        this.analytics?.trackAPI('api_teams_patch_name', {team_id: team.id});
 
         return this.doFetch(
             `${this.getTeamRoute(team.id)}/patch`,
-            {method: 'put', body: JSON.stringify(team)},
+            {method: 'put', body: team},
         );
     };
 
@@ -80,7 +82,7 @@ const ClientTeams = (superclass: any) => class extends superclass {
     };
 
     getTeamByName = async (teamName: string) => {
-        analytics.trackAPI('api_teams_get_team_by_name');
+        this.analytics?.trackAPI('api_teams_get_team_by_name');
 
         return this.doFetch(
             this.getTeamNameRoute(teamName),
@@ -109,13 +111,6 @@ const ClientTeams = (superclass: any) => class extends superclass {
         );
     };
 
-    getMyTeamUnreads = async () => {
-        return this.doFetch(
-            `${this.getUserRoute('me')}/teams/unread`,
-            {method: 'get'},
-        );
-    };
-
     getTeamMembers = async (teamId: string, page = 0, perPage = PER_PAGE_DEFAULT) => {
         return this.doFetch(
             `${this.getTeamMembersRoute(teamId)}${buildQueryString({page, per_page: perPage})}`,
@@ -130,13 +125,41 @@ const ClientTeams = (superclass: any) => class extends superclass {
         );
     };
 
+    getTeamMembersByIds = (teamId: string, userIds: string[]) => {
+        return this.doFetch(
+            `${this.getTeamMembersRoute(teamId)}/ids`,
+            {method: 'post', body: userIds},
+        );
+    };
+
     addToTeam = async (teamId: string, userId: string) => {
-        analytics.trackAPI('api_teams_invite_members', {team_id: teamId});
+        this.analytics?.trackAPI('api_teams_invite_members', {team_id: teamId});
 
         const member = {user_id: userId, team_id: teamId};
         return this.doFetch(
             `${this.getTeamMembersRoute(teamId)}`,
-            {method: 'post', body: JSON.stringify(member)},
+            {method: 'post', body: member},
+        );
+    };
+
+    addUsersToTeamGracefully = (teamId: string, userIds: string[]) => {
+        this.analytics?.trackAPI('api_teams_batch_add_members', {team_id: teamId, count: userIds.length});
+
+        const members: Array<{team_id: string; user_id: string}> = [];
+        userIds.forEach((id) => members.push({team_id: teamId, user_id: id}));
+
+        return this.doFetch(
+            `${this.getTeamMembersRoute(teamId)}/batch?graceful=true`,
+            {method: 'post', body: members},
+        );
+    };
+
+    sendEmailInvitesToTeamGracefully = (teamId: string, emails: string[]) => {
+        this.analytics?.trackAPI('api_teams_invite_members', {team_id: teamId});
+
+        return this.doFetch(
+            `${this.getTeamRoute(teamId)}/invite/email?graceful=true`,
+            {method: 'post', body: emails},
         );
     };
 
@@ -149,7 +172,7 @@ const ClientTeams = (superclass: any) => class extends superclass {
     };
 
     removeFromTeam = async (teamId: string, userId: string) => {
-        analytics.trackAPI('api_teams_remove_members', {team_id: teamId});
+        this.analytics?.trackAPI('api_teams_remove_members', {team_id: teamId});
 
         return this.doFetch(
             `${this.getTeamMemberRoute(teamId, userId)}`,

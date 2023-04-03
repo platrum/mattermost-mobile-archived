@@ -2,21 +2,23 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useState} from 'react';
-import {LayoutChangeEvent, useWindowDimensions, ScrollView, StyleProp, StyleSheet, TextStyle, View, ViewStyle} from 'react-native';
+import {LayoutChangeEvent, useWindowDimensions, ScrollView, StyleProp, StyleSheet, TextStyle, View} from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import Markdown from '@components/markdown';
 import ShowMoreButton from '@components/post_list/post/body/message/show_more_button';
 import {useShowMoreAnimatedStyle} from '@hooks/show_more';
-import {PostMetadata} from '@mm-redux/types/posts';
-import {Theme} from '@mm-redux/types/theme';
+
+import type {MarkdownBlockStyles, MarkdownTextStyles} from '@typings/global/markdown';
 
 type Props = {
     baseTextStyle: StyleProp<TextStyle>;
-    blockStyles?: Array<StyleProp<ViewStyle>>;
+    blockStyles?: MarkdownBlockStyles;
+    channelId: string;
     hasThumbnail?: boolean;
-    metadata?: PostMetadata;
-    textStyles?: Array<StyleProp<TextStyle>>;
+    location: string;
+    metadata?: PostMetadata | null;
+    textStyles?: MarkdownTextStyles;
     theme: Theme;
     value?: string;
 }
@@ -28,7 +30,7 @@ const style = StyleSheet.create({
     },
 });
 
-const AttachmentText = ({baseTextStyle, blockStyles, hasThumbnail, metadata, textStyles, theme, value}: Props) => {
+const AttachmentText = ({baseTextStyle, blockStyles, channelId, hasThumbnail, location, metadata, textStyles, theme, value}: Props) => {
     const [open, setOpen] = useState(false);
     const [height, setHeight] = useState<number|undefined>();
     const dimensions = useWindowDimensions();
@@ -49,12 +51,15 @@ const AttachmentText = ({baseTextStyle, blockStyles, hasThumbnail, metadata, tex
                 >
                     <View onLayout={onLayout}>
                         <Markdown
-                            baseTextStyle={baseTextStyle as never}
+                            channelId={channelId}
+                            location={location}
+                            baseTextStyle={baseTextStyle}
                             textStyles={textStyles}
                             blockStyles={blockStyles}
                             disableGallery={true}
                             imagesMetadata={metadata?.images}
                             value={value}
+                            theme={theme}
                         />
                     </View>
                 </ScrollView>

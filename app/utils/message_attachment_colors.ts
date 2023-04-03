@@ -1,10 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {Theme} from '@mm-redux/types/theme';
-import {Dictionary} from '@mm-redux/types/utilities';
-
-export function getStatusColors(theme: Theme) {
+export function getStatusColors(theme: Theme): Dictionary<string> {
     return {
         good: '#00c100',
         warning: '#dede01',
@@ -12,5 +9,5 @@ export function getStatusColors(theme: Theme) {
         default: theme.centerChannelColor,
         primary: theme.buttonBg,
         success: theme.onlineIndicator,
-    } as Dictionary<string>;
+    };
 }

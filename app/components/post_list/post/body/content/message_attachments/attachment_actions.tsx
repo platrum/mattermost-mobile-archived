@@ -3,12 +3,8 @@
 
 import React from 'react';
 
-import {PostAction} from '@mm-redux/types/integration_actions';
-
 import ActionButton from './action_button';
 import ActionMenu from './action_menu';
-
-import type {Theme} from '@mm-redux/types/theme';
 
 type Props = {
     actions: PostAction[];
@@ -16,7 +12,7 @@ type Props = {
     theme: Theme;
 }
 const AttachmentActions = ({actions, postId, theme}: Props) => {
-    const content = [] as React.ReactNode[];
+    const content: React.ReactNode[] = [];
 
     actions.forEach((action) => {
         if (!action.id || !action.name) {
@@ -24,35 +20,35 @@ const AttachmentActions = ({actions, postId, theme}: Props) => {
         }
 
         switch (action.type) {
-        case 'select':
-            content.push(
-                <ActionMenu
-                    key={action.id}
-                    id={action.id}
-                    name={action.name}
-                    dataSource={action.data_source}
-                    defaultOption={action.default_option}
-                    options={action.options}
-                    postId={postId}
-                    disabled={action.disabled}
-                />,
-            );
-            break;
-        case 'button':
-        default:
-            content.push(
-                <ActionButton
-                    key={action.id}
-                    id={action.id}
-                    cookie={action.cookie}
-                    name={action.name}
-                    postId={postId}
-                    disabled={action.disabled}
-                    buttonColor={action.style}
-                    theme={theme}
-                />,
-            );
-            break;
+            case 'select':
+                content.push(
+                    <ActionMenu
+                        key={action.id}
+                        id={action.id}
+                        name={action.name}
+                        dataSource={action.data_source}
+                        defaultOption={action.default_option}
+                        options={action.options}
+                        postId={postId}
+                        disabled={action.disabled}
+                    />,
+                );
+                break;
+            case 'button':
+            default:
+                content.push(
+                    <ActionButton
+                        key={action.id}
+                        id={action.id}
+                        cookie={action.cookie}
+                        name={action.name}
+                        postId={postId}
+                        disabled={action.disabled}
+                        buttonColor={action.style}
+                        theme={theme}
+                    />,
+                );
+                break;
         }
     });
 

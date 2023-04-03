@@ -2,19 +2,19 @@
 // See LICENSE.txt for license information.
 
 import base64 from 'base-64';
-import React from 'react';
-import {Image, Text, View} from 'react-native';
+import React, {useCallback, useMemo} from 'react';
+import {Text, View} from 'react-native';
 import FastImage from 'react-native-fast-image';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {SvgXml} from 'react-native-svg';
 
+import CompassIcon from '@components/compass_icon';
 import TouchableWithFeedback from '@components/touchable_with_feedback';
-import {COMMAND_SUGGESTION_ERROR} from '@mm-redux/constants/apps';
-import {Theme} from '@mm-redux/types/theme';
+import {COMMAND_SUGGESTION_ERROR} from '@constants/apps';
+import {useTheme} from '@context/theme';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
 const slashIcon = require('@assets/images/autocomplete/slash_command.png');
-const bangIcon = require('@assets/images/autocomplete/slash_command_error.png');
 
 const getStyleFromTheme = makeStyleSheetFromTheme((theme: Theme) => {
     return {
@@ -33,15 +33,16 @@ const getStyleFromTheme = makeStyleSheetFromTheme((theme: Theme) => {
             width: 16,
             height: 16,
         },
-        iconColor: {
-            tintColor: theme.centerChannelColor,
-        },
         container: {
             flexDirection: 'row',
             alignItems: 'center',
             paddingBottom: 8,
             paddingHorizontal: 16,
             overflow: 'hidden',
+        },
+        slashIcon: {
+            height: 16,
+            width: 10,
         },
         suggestionContainer: {
             flex: 1,
@@ -65,33 +66,39 @@ type Props = {
     onPress: (complete: string) => void;
     suggestion: string;
     icon: string;
-    theme: Theme;
 }
 
-const SlashSuggestionItem = (props: Props) => {
+const SlashSuggestionItem = ({
+    complete = '',
+    description,
+    hint,
+    onPress,
+    suggestion,
+    icon,
+}: Props) => {
     const insets = useSafeAreaInsets();
-    const {
-        complete,
-        description,
-        hint,
-        onPress,
-        suggestion,
-        theme,
-    } = props;
-
-    const completeSuggestion = () => {
-        onPress(complete);
-    };
-
+    const theme = useTheme();
     const style = getStyleFromTheme(theme);
 
+    const iconAsSource = useMemo(() => {
+        return {uri: icon};
+    }, [icon]);
+
+    const touchableStyle = useMemo(() => {
+        return {marginLeft: insets.left, marginRight: insets.right};
+    }, [insets]);
+
+    const completeSuggestion = useCallback(() => {
+        onPress(complete);
+    }, [onPress, complete]);
+
     let suggestionText = suggestion;
-    if (suggestionText[0] === '/' && complete.split(' ').length === 1) {
+    if (suggestionText?.[0] === '/' && complete.split(' ').length === 1) {
         suggestionText = suggestionText.substring(1);
     }
 
     if (hint) {
-        if (suggestionText.length) {
+        if (suggestionText?.length) {
             suggestionText += ` ${hint}`;
         } else {
             suggestionText = hint;
@@ -99,54 +106,59 @@ const SlashSuggestionItem = (props: Props) => {
     }
 
     let image = (
-        <Image
-            style={style.iconColor}
-            width={10}
-            height={16}
+        <FastImage
+            tintColor={theme.centerChannelColor}
+            style={style.slashIcon}
             source={slashIcon}
         />
     );
-    if (props.icon === COMMAND_SUGGESTION_ERROR) {
+    if (icon === COMMAND_SUGGESTION_ERROR) {
         image = (
-            <Image
-                style={style.iconColor}
-                width={10}
-                height={16}
-                source={bangIcon}
+            <CompassIcon
+                name='alert-circle-outline'
+                size={24}
             />
         );
-    } else if (props.icon && props.icon.startsWith('http')) {
+    } else if (icon.startsWith('http')) {
         image = (
             <FastImage
-                source={{uri: props.icon}}
+                source={iconAsSource}
                 style={style.uriIcon}
             />
         );
-    } else if (props.icon && props.icon.startsWith('data:')) {
-        if (props.icon.startsWith('data:image/svg+xml')) {
-            const xml = base64.decode(props.icon.substring('data:image/svg+xml;base64,'.length));
-            image = (
-                <SvgXml
-                    xml={xml}
-                    width={32}
-                    height={32}
-                />
-            );
+    } else if (icon.startsWith('data:')) {
+        if (icon.startsWith('data:image/svg+xml')) {
+            let xml = '';
+            try {
+                xml = base64.decode(icon.substring('data:image/svg+xml;base64,'.length));
+                image = (
+                    <SvgXml
+                        xml={xml}
+                        width={32}
+                        height={32}
+                    />
+                );
+            } catch (error) {
+                // Do nothing
+            }
         } else {
             image = (
-                <Image
-                    source={{uri: props.icon}}
+                <FastImage
+                    source={iconAsSource}
                     style={style.uriIcon}
                 />
             );
         }
     }
 
+    const slashSuggestionItemTestId = `autocomplete.slash_suggestion_item.${suggestion}`;
+
     return (
         <TouchableWithFeedback
             onPress={completeSuggestion}
-            style={{marginLeft: insets.left, marginRight: insets.right}}
+            style={touchableStyle}
             underlayColor={changeOpacity(theme.buttonBg, 0.08)}
+            testID={slashSuggestionItemTestId}
             type={'native'}
         >
             <View style={style.container}>
@@ -154,12 +166,18 @@ const SlashSuggestionItem = (props: Props) => {
                     {image}
                 </View>
                 <View style={style.suggestionContainer}>
-                    <Text style={style.suggestionName}>{`${suggestionText}`}</Text>
+                    <Text
+                        style={style.suggestionName}
+                        testID={`${slashSuggestionItemTestId}.name`}
+                    >
+                        {`${suggestionText}`}
+                    </Text>
                     {Boolean(description) &&
                         <Text
                             ellipsizeMode='tail'
                             numberOfLines={1}
                             style={style.suggestionDescription}
+                            testID={`${slashSuggestionItemTestId}.description`}
                         >
                             {description}
                         </Text>

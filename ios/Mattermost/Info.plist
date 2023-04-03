@@ -21,7 +21,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.55.0</string>
+	<string>2.3.0</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleURLTypes</key>
@@ -37,7 +37,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>418</string>
+	<string>464</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
@@ -58,19 +58,35 @@
 		</dict>
 	</dict>
 	<key>NSAppleMusicUsageDescription</key>
-	<string>Let Mattermost access your Media files</string>
+	<string>Let $(PRODUCT_NAME) access your Media files</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Share post data across devices with $(PRODUCT_NAME)</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Share post data across devices with $(PRODUCT_NAME)</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Share contacts within $(PRODUCT_NAME)</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Take a Photo or Video and upload it to your Mattermost instance</string>
+	<string>Take a photo or video and upload it to $(PRODUCT_NAME)</string>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Mattermost uses Face ID to restrict unauthorized users from accessing the app.</string>
+	<string>$(PRODUCT_NAME) uses Face ID to restrict unauthorized users from accessing the app.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Send your current location to $(PRODUCT_NAME)</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Send your current location to $(PRODUCT_NAME)</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Capture audio when recording a video to share to your Mattermost instance</string>
+	<string>Capture audio when making a call or recording a video to share within $(PRODUCT_NAME)</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Share your route in your $(PRODUCT_NAME) workspace</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Save downloaded Photos and Videos from your Mattermost instance to your device</string>
+	<string>Save downloaded photos and videos from $(PRODUCT_NAME) to your device</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Upload Photos and Videos from your device to your Mattermost instance</string>
+	<string>Upload photos and videos from your device to $(PRODUCT_NAME)</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Send voice messages to your Mattermost instance</string>
+	<string>Send voice messages to $(PRODUCT_NAME)</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>UIAppFonts</key>
 	<array>
 		<string>OpenSans-Bold.ttf</string>
@@ -81,22 +97,12 @@
 		<string>OpenSans-Light.ttf</string>
 		<string>OpenSans-LightItalic.ttf</string>
 		<string>OpenSans-Regular.ttf</string>
-		<string>OpenSans-Semibold.ttf</string>
-		<string>OpenSans-SemiboldItalic.ttf</string>
-		<string>Roboto-Black.ttf</string>
-		<string>Roboto-BlackItalic.ttf</string>
-		<string>Roboto-Bold.ttf</string>
-		<string>Roboto-BoldItalic.ttf</string>
-		<string>Roboto-Italic.ttf</string>
-		<string>Roboto-Light.ttf</string>
-		<string>Roboto-LightItalic.ttf</string>
-		<string>Roboto-Medium.ttf</string>
-		<string>Roboto-MediumItalic.ttf</string>
-		<string>Roboto-Regular.ttf</string>
-		<string>Roboto-Thin.ttf</string>
-		<string>Roboto-ThinItalic.ttf</string>
+		<string>OpenSans-SemiBold.ttf</string>
+		<string>OpenSans-SemiBoldItalic.ttf</string>
+		<string>Metropolis-Regular.ttf</string>
+		<string>Metropolis-SemiBold.ttf</string>
+		<string>Metropolis-Light.ttf</string>
 		<string>compass-icons.ttf</string>
-		<string>Mattermost-Regular.otf</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>
@@ -110,11 +116,19 @@
 	<array>
 		<string>armv7</string>
 	</array>
+	<key>UIRequiresFullScreen</key>
+	<false/>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
-		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>

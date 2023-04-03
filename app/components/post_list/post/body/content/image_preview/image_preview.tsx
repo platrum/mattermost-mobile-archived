@@ -2,32 +2,37 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {StyleSheet, View} from 'react-native';
+import {Animated, StyleSheet, TouchableWithoutFeedback, View} from 'react-native';
 
-import FileIcon from '@components/post_list/post/body/files/file_icon';
+import {getRedirectLocation} from '@actions/remote/general';
+import FileIcon from '@components/files/file_icon';
 import ProgressiveImage from '@components/progressive_image';
-import TouchableWithFeedback from '@components/touchable_with_feedback';
-import {useDidUpdate} from '@hooks';
-import {usePermanentSidebar, useSplitView} from '@hooks/permanent_sidebar';
-import {changeOpacity} from '@mm-redux/utils/theme_utils';
-import {generateId} from '@utils/file';
-import {openGallerWithMockFile} from '@utils/gallery';
+import {GalleryInit} from '@context/gallery';
+import {useServerUrl} from '@context/server';
+import {useIsTablet} from '@hooks/device';
+import useDidUpdate from '@hooks/did_update';
+import {useGalleryItem} from '@hooks/gallery';
+import {lookupMimeType} from '@utils/file';
+import {openGalleryAtIndex} from '@utils/gallery';
+import {generateId} from '@utils/general';
 import {calculateDimensions, getViewPortWidth, isGifTooLarge} from '@utils/images';
-import {isImageLink, isValidUrl} from '@utils/url';
+import {changeOpacity} from '@utils/theme';
+import {extractFilenameFromUrl, isImageLink, isValidUrl} from '@utils/url';
 
-import type {Post} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
+import type {GalleryItemType} from '@typings/screens/gallery';
 
 type ImagePreviewProps = {
     expandedLink?: string;
-    getRedirectLocation: (link: string) => void;
     isReplyPost: boolean;
     link: string;
-    post: Post;
+    layoutWidth?: number;
+    location: string;
+    metadata: PostMetadata | undefined | null;
+    postId: string;
     theme: Theme;
 }
 
-const styles = StyleSheet.create({
+const style = StyleSheet.create({
     imageContainer: {
         alignItems: 'flex-start',
         justifyContent: 'flex-start',
@@ -42,27 +47,44 @@ const styles = StyleSheet.create({
     },
 });
 
-const ImagePreview = ({expandedLink, getRedirectLocation, isReplyPost, link, post, theme}: ImagePreviewProps) => {
+const ImagePreview = ({expandedLink, isReplyPost, layoutWidth, link, location, metadata, postId, theme}: ImagePreviewProps) => {
+    const galleryIdentifier = `${postId}-ImagePreview-${location}`;
     const [error, setError] = useState(false);
-    const fileId = useRef(generateId()).current;
+    const serverUrl = useServerUrl();
+    const fileId = useRef(generateId('uid')).current;
     const [imageUrl, setImageUrl] = useState(expandedLink || link);
-    const permanentSidebar = usePermanentSidebar();
-    const splitView = useSplitView();
-    const hasPemanentSidebar = !splitView && permanentSidebar;
-    const imageProps = post.metadata.images[link];
-    const dimensions = calculateDimensions(imageProps.height, imageProps.width, getViewPortWidth(isReplyPost, hasPemanentSidebar));
+    const isTablet = useIsTablet();
+    const imageProps = metadata?.images?.[link];
+    const dimensions = calculateDimensions(imageProps?.height, imageProps?.width, layoutWidth || getViewPortWidth(isReplyPost, isTablet));
 
     const onError = useCallback(() => {
         setError(true);
     }, []);
 
-    const onPress = useCallback(() => {
-        openGallerWithMockFile(imageUrl, post.id, imageProps.height, imageProps.width, fileId);
-    }, [imageUrl]);
+    const onPress = () => {
+        const item: GalleryItemType = {
+            id: fileId,
+            postId,
+            uri: imageUrl,
+            width: imageProps?.width || 0,
+            height: imageProps?.height || 0,
+            name: extractFilenameFromUrl(imageUrl) || 'imagePreview.png',
+            mime_type: lookupMimeType(imageUrl) || 'image/png',
+            type: 'image',
+            lastPictureUpdate: 0,
+        };
+        openGalleryAtIndex(galleryIdentifier, 0, [item]);
+    };
+
+    const {ref, onGestureEvent, styles} = useGalleryItem(
+        galleryIdentifier,
+        0,
+        onPress,
+    );
 
     useEffect(() => {
         if (!isImageLink(link) && expandedLink === undefined) {
-            getRedirectLocation(link);
+            getRedirectLocation(serverUrl, link);
         }
     }, [link]);
 
@@ -82,35 +104,34 @@ const ImagePreview = ({expandedLink, getRedirectLocation, isReplyPost, link, pos
 
     if (error || !isValidUrl(expandedLink || link) || isGifTooLarge(imageProps)) {
         return (
-            <View style={[styles.imageContainer, {height: dimensions.height, borderWidth: 1, borderColor: changeOpacity(theme.centerChannelColor, 0.2)}]}>
-                <View style={[styles.image, {width: dimensions.width, height: dimensions.height}]}>
+            <View style={[style.imageContainer, {height: dimensions.height, borderWidth: 1, borderColor: changeOpacity(theme.centerChannelColor, 0.2)}]}>
+                <View style={[style.image, {width: dimensions.width, height: dimensions.height}]}>
                     <FileIcon
                         failed={true}
-                        theme={theme}
                     />
                 </View>
             </View>
         );
     }
 
-    // Note that the onPress prop of TouchableWithoutFeedback only works if its child is a View
     return (
-        <TouchableWithFeedback
-            onPress={onPress}
-            style={[styles.imageContainer, {height: dimensions.height}]}
-            type={'none'}
-        >
-            <View>
-                <ProgressiveImage
-                    id={fileId}
-                    style={[styles.image, {width: dimensions.width, height: dimensions.height}]}
-                    imageUri={imageUrl}
-                    resizeMode='contain'
-                    onError={onError}
-                />
-            </View>
-        </TouchableWithFeedback>
+        <GalleryInit galleryIdentifier={galleryIdentifier}>
+            <Animated.View style={[styles, style.imageContainer, {height: dimensions.height}]}>
+                <TouchableWithoutFeedback onPress={onGestureEvent}>
+                    <Animated.View testID={`ImagePreview-${fileId}`}>
+                        <ProgressiveImage
+                            forwardRef={ref}
+                            id={fileId}
+                            imageUri={imageUrl}
+                            onError={onError}
+                            resizeMode='contain'
+                            style={[style.image, {width: dimensions.width, height: dimensions.height}]}
+                        />
+                    </Animated.View>
+                </TouchableWithoutFeedback>
+            </Animated.View>
+        </GalleryInit>
     );
 };
 
-export default ImagePreview;
+export default React.memo(ImagePreview);

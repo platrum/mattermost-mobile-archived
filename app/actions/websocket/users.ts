@@ -1,205 +1,116 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {fetchChannelAndMyMember} from '@actions/helpers/channels';
-import {loadChannelsForTeam} from '@actions/views/channel';
-import {getMe} from '@actions/views/user';
-import {Client4} from '@client/rest';
-import {ChannelTypes, TeamTypes, UserTypes, RoleTypes} from '@mm-redux/action_types';
-import {notVisibleUsersActions} from '@mm-redux/actions/helpers';
-import {General} from '@mm-redux/constants';
-import {getAllChannels, getCurrentChannelId, getChannelMembersInChannels} from '@mm-redux/selectors/entities/channels';
-import {getCurrentTeamId} from '@mm-redux/selectors/entities/teams';
-import {getCurrentUser, getCurrentUserId} from '@mm-redux/selectors/entities/users';
-import {ActionResult, DispatchFunc, GenericAction, GetStateFunc, batchActions} from '@mm-redux/types/actions';
-import {WebSocketMessage} from '@mm-redux/types/websocket';
-import EventEmitter from '@mm-redux/utils/event_emitter';
-import {isGuest} from '@mm-redux/utils/user_utils';
+import {DeviceEventEmitter} from 'react-native';
 
-export function handleStatusChangedEvent(msg: WebSocketMessage): GenericAction {
-    return {
-        type: UserTypes.RECEIVED_STATUSES,
-        data: [{user_id: msg.data.user_id, status: msg.data.status}],
-    };
-}
+import {updateChannelsDisplayName} from '@actions/local/channel';
+import {fetchMe, fetchUsersByIds} from '@actions/remote/user';
+import {General, Events, Preferences} from '@constants';
+import DatabaseManager from '@database/manager';
+import {getTeammateNameDisplaySetting} from '@helpers/api/preference';
+import WebsocketManager from '@managers/websocket_manager';
+import {queryChannelsByTypes, queryUserChannelsByTypes} from '@queries/servers/channel';
+import {queryDisplayNamePreferences} from '@queries/servers/preference';
+import {getConfig, getLicense} from '@queries/servers/system';
+import {getCurrentUser} from '@queries/servers/user';
+import {displayUsername} from '@utils/user';
 
-export function handleUserAddedEvent(msg: WebSocketMessage) {
-    return async (dispatch: DispatchFunc, getState: GetStateFunc): Promise<ActionResult> => {
-        try {
-            const state = getState();
-            const currentChannelId = getCurrentChannelId(state);
-            const currentTeamId = getCurrentTeamId(state);
-            const currentUserId = getCurrentUserId(state);
-            const teamId = msg.data.team_id;
-            const actions: GenericAction[] = [{
-                type: ChannelTypes.CHANNEL_MEMBER_ADDED,
-                data: {
-                    channel_id: msg.broadcast.channel_id,
-                    user_id: msg.data.user_id,
-                },
-            }];
+import type {Model} from '@nozbe/watermelondb';
 
-            if (msg.broadcast.channel_id === currentChannelId) {
-                const stat = await Client4.getChannelStats(currentChannelId);
-                actions.push({
-                    type: ChannelTypes.RECEIVED_CHANNEL_STATS,
-                    data: stat,
-                });
-            }
+export async function handleUserUpdatedEvent(serverUrl: string, msg: WebSocketMessage) {
+    const operator = DatabaseManager.serverDatabases[serverUrl]?.operator;
+    if (!operator) {
+        return;
+    }
 
-            if (teamId === currentTeamId && msg.data.user_id === currentUserId) {
-                const channelActions = await fetchChannelAndMyMember(msg.broadcast.channel_id);
+    const {database} = operator;
+    const currentUser = await getCurrentUser(database);
+    if (!currentUser) {
+        return;
+    }
 
-                if (channelActions.length) {
-                    actions.push(...channelActions);
-                }
-            }
+    const user: UserProfile = msg.data.user;
+    const modelsToBatch: Model[] = [];
+    let userToSave = user;
 
-            dispatch(batchActions(actions, 'BATCH_WS_USER_ADDED'));
-        } catch (error) {
-            //do nothing
-        }
-        return {data: true};
-    };
-}
-
-export function handleUserRemovedEvent(msg: WebSocketMessage) {
-    return async (dispatch: DispatchFunc, getState: GetStateFunc): Promise<ActionResult> => {
-        try {
-            const state = getState();
-            const channels = getAllChannels(state);
-            const currentChannelId = getCurrentChannelId(state);
-            const currentTeamId = getCurrentTeamId(state);
-            const currentUser = getCurrentUser(state);
-            const actions: GenericAction[] = [];
-            let channelId;
-            let userId;
-
-            if (msg.data.user_id) {
-                userId = msg.data.user_id;
-                channelId = msg.broadcast.channel_id;
-            } else if (msg.broadcast.user_id) {
-                channelId = msg.data.channel_id;
-                userId = msg.broadcast.user_id;
-            }
-
-            if (userId) {
-                actions.push({
-                    type: ChannelTypes.CHANNEL_MEMBER_REMOVED,
-                    data: {
-                        channel_id: channelId,
-                        user_id: userId,
-                    },
-                });
-            }
-
-            const channel = channels[currentChannelId];
-
-            if (msg.data?.user_id !== currentUser.id) {
-                const members = getChannelMembersInChannels(state);
-                const isMember = Object.values(members).some((member) => member[msg.data.user_id]);
-                if (channel && isGuest(currentUser.roles) && !isMember) {
-                    actions.push({
-                        type: UserTypes.PROFILE_NO_LONGER_VISIBLE,
-                        data: {user_id: msg.data.user_id},
-                    }, {
-                        type: TeamTypes.REMOVE_MEMBER_FROM_TEAM,
-                        data: {team_id: channel.team_id, user_id: msg.data.user_id},
-                    });
-                }
-            }
-
-            let redirectToDefaultChannel = false;
-            if (msg.broadcast.user_id === currentUser.id && currentTeamId) {
-                const {data: myData}: any = await dispatch(loadChannelsForTeam(currentTeamId, true));
-
-                if (myData?.channels && myData?.channelMembers) {
-                    actions.push({
-                        type: ChannelTypes.RECEIVED_MY_CHANNELS_WITH_MEMBERS,
-                        data: myData,
-                    });
-                }
-
-                if (channel) {
-                    actions.push({
-                        type: ChannelTypes.LEAVE_CHANNEL,
-                        data: {
-                            id: msg.data.channel_id,
-                            user_id: currentUser.id,
-                            team_id: channel.team_id,
-                            type: channel.type,
-                        },
-                    });
-                }
-
-                if (msg.data.channel_id === currentChannelId) {
-                    // emit the event so the client can change his own state
-                    redirectToDefaultChannel = true;
-                }
-                if (isGuest(currentUser.roles)) {
-                    const notVisible = await notVisibleUsersActions(state);
-                    if (notVisible.length) {
-                        actions.push(...notVisible);
-                    }
-                }
-            } else if (msg.data.channel_id === currentChannelId) {
-                const stat = await Client4.getChannelStats(currentChannelId);
-                actions.push({
-                    type: ChannelTypes.RECEIVED_CHANNEL_STATS,
-                    data: stat,
-                });
-            }
-
-            dispatch(batchActions(actions, 'BATCH_WS_USER_REMOVED'));
-            if (redirectToDefaultChannel) {
-                EventEmitter.emit(General.REMOVED_FROM_CHANNEL, channel.display_name);
-                EventEmitter.emit(General.SWITCH_TO_DEFAULT_CHANNEL, currentTeamId);
-            }
-        } catch {
-            // do nothing
-        }
-
-        return {data: true};
-    };
-}
-
-export function handleUserRoleUpdated(msg: WebSocketMessage) {
-    return async (dispatch: DispatchFunc): Promise<ActionResult> => {
-        try {
-            const roles = msg.data.roles.split(' ');
-            const data = await Client4.getRolesByNames(roles);
-
-            dispatch({
-                type: RoleTypes.RECEIVED_ROLES,
-                data,
-            });
-        } catch {
-            // do nothing
-        }
-
-        return {data: true};
-    };
-}
-
-export function handleUserUpdatedEvent(msg: WebSocketMessage) {
-    return (dispatch: DispatchFunc, getState: GetStateFunc): ActionResult => {
-        const currentUser = getCurrentUser(getState());
-        const user = msg.data.user;
-
-        if (user.id === currentUser.id) {
-            if (user.update_at > currentUser.update_at) {
+    if (user.id === currentUser.id) {
+        if (user.update_at > (currentUser?.updateAt || 0)) {
+            // ESR: 6.5
+            if (!user.notify_props || !Object.keys(user.notify_props).length) {
+                // Current user is sanitized so we fetch it from the server
                 // Need to request me to make sure we don't override with sanitized fields from the
                 // websocket event
-                dispatch(getMe());
+                const me = await fetchMe(serverUrl, true);
+                if (me.user) {
+                    userToSave = me.user;
+                }
             }
-        } else {
-            dispatch({
-                type: UserTypes.RECEIVED_PROFILES,
-                data: {
-                    [user.id]: user,
-                },
-            });
+
+            // Update GMs display name if locale has changed
+            if (user.locale !== currentUser.locale) {
+                const channels = await queryChannelsByTypes(database, [General.GM_CHANNEL]).fetch();
+                if (channels.length) {
+                    const {models} = await updateChannelsDisplayName(serverUrl, channels, [user], true);
+                    if (models?.length) {
+                        modelsToBatch.push(...models);
+                    }
+                }
+            }
         }
-        return {data: true};
-    };
+    } else {
+        const channels = await queryUserChannelsByTypes(database, user.id, [General.DM_CHANNEL, General.GM_CHANNEL]).fetch();
+        if (channels.length) {
+            const {models} = await updateChannelsDisplayName(serverUrl, channels, [user], true);
+            if (models?.length) {
+                modelsToBatch.push(...models);
+            }
+        }
+    }
+
+    const userModel = await operator.handleUsers({users: [userToSave], prepareRecordsOnly: true});
+    modelsToBatch.push(...userModel);
+
+    try {
+        await operator.batchRecords(modelsToBatch, 'handleUserUpdatedEvent');
+    } catch {
+        // do nothing
+    }
 }
+
+export async function handleUserTypingEvent(serverUrl: string, msg: WebSocketMessage) {
+    const currentServerUrl = await DatabaseManager.getActiveServerUrl();
+    if (currentServerUrl === serverUrl) {
+        const database = DatabaseManager.serverDatabases[serverUrl]?.database;
+        if (!database) {
+            return;
+        }
+
+        const license = await getLicense(database);
+        const config = await getConfig(database);
+
+        const {users, existingUsers} = await fetchUsersByIds(serverUrl, [msg.data.user_id]);
+        const user = users?.[0] || existingUsers?.[0];
+
+        const namePreference = await queryDisplayNamePreferences(database, Preferences.NAME_NAME_FORMAT).fetch();
+        const teammateDisplayNameSetting = getTeammateNameDisplaySetting(namePreference, config.LockTeammateNameDisplay, config.TeammateNameDisplay, license);
+        const currentUser = await getCurrentUser(database);
+        const username = displayUsername(user, currentUser?.locale, teammateDisplayNameSetting);
+        const data = {
+            channelId: msg.broadcast.channel_id,
+            rootId: msg.data.parent_id,
+            userId: msg.data.user_id,
+            username,
+            now: Date.now(),
+        };
+        DeviceEventEmitter.emit(Events.USER_TYPING, data);
+
+        setTimeout(() => {
+            DeviceEventEmitter.emit(Events.USER_STOP_TYPING, data);
+        }, parseInt(config.TimeBetweenUserTypingUpdatesMilliseconds, 10));
+    }
+}
+
+export const userTyping = async (serverUrl: string, channelId: string, rootId?: string) => {
+    const client = WebsocketManager.getClient(serverUrl);
+    client?.sendUserTypingEvent(channelId, rootId);
+};
