@@ -1,12 +1,11 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {analytics} from '@init/analytics';
-import {FileInfo} from '@mm-redux/types/files';
-import {Post} from '@mm-redux/types/posts';
-import {buildQueryString, isMinimumServerVersion} from '@mm-redux/utils/helpers';
+import {buildQueryString} from '@utils/helpers';
 
 import {PER_PAGE_DEFAULT} from './constants';
+
+import type ClientBase from './base';
 
 export interface ClientPostsMix {
     createPost: (post: Post) => Promise<Post>;
@@ -14,51 +13,46 @@ export interface ClientPostsMix {
     getPost: (postId: string) => Promise<Post>;
     patchPost: (postPatch: Partial<Post> & {id: string}) => Promise<Post>;
     deletePost: (postId: string) => Promise<any>;
-    getPostThread: (postId: string, fetchThreads?: boolean, collapsedThreads?: boolean, collapsedThreadsExtended?: boolean) => Promise<any>;
-    getPosts: (channelId: string, page?: number, perPage?: number, fetchThreads?: boolean, collapsedThreads?: boolean, collapsedThreadsExtended?: boolean) => Promise<any>;
-    getPostsSince: (channelId: string, since: number, fetchThreads?: boolean, collapsedThreads?: boolean, collapsedThreadsExtended?: boolean) => Promise<any>;
-    getPostsBefore: (channelId: string, postId: string, page?: number, perPage?: number, fetchThreads?: boolean, collapsedThreads?: boolean, collapsedThreadsExtended?: boolean) => Promise<any>;
-    getPostsAfter: (channelId: string, postId: string, page?: number, perPage?: number, fetchThreads?: boolean, collapsedThreads?: boolean, collapsedThreadsExtended?: boolean) => Promise<any>;
-    getUserThreads: (userId: string, teamId: string, before?: string, after?: string, pageSize?: number, extended?: boolean, deleted?: boolean, unread?: boolean, since?: number) => Promise<any>;
-    getUserThread: (userId: string, teamId: string, threadId: string, extended?: boolean) => Promise<any>;
-    updateThreadsReadForUser: (userId: string, teamId: string) => Promise<any>;
-    updateThreadReadForUser: (userId: string, teamId: string, threadId: string, timestamp: number) => Promise<any>;
-    updateThreadFollowForUser: (userId: string, teamId: string, threadId: string, state: boolean) => Promise<any>;
+    getPostThread: (postId: string, options: FetchPaginatedThreadOptions) => Promise<PostResponse>;
+    getPosts: (channelId: string, page?: number, perPage?: number, collapsedThreads?: boolean, collapsedThreadsExtended?: boolean) => Promise<PostResponse>;
+    getPostsSince: (channelId: string, since: number, collapsedThreads?: boolean, collapsedThreadsExtended?: boolean) => Promise<PostResponse>;
+    getPostsBefore: (channelId: string, postId: string, page?: number, perPage?: number, collapsedThreads?: boolean, collapsedThreadsExtended?: boolean) => Promise<PostResponse>;
+    getPostsAfter: (channelId: string, postId: string, page?: number, perPage?: number, collapsedThreads?: boolean, collapsedThreadsExtended?: boolean) => Promise<PostResponse>;
     getFileInfosForPost: (postId: string) => Promise<FileInfo[]>;
-    getFlaggedPosts: (userId: string, channelId?: string, teamId?: string, page?: number, perPage?: number) => Promise<any>;
-    getPinnedPosts: (channelId: string) => Promise<any>;
+    getSavedPosts: (userId: string, channelId?: string, teamId?: string, page?: number, perPage?: number) => Promise<PostResponse>;
+    getPinnedPosts: (channelId: string) => Promise<PostResponse>;
     markPostAsUnread: (userId: string, postId: string) => Promise<any>;
     pinPost: (postId: string) => Promise<any>;
     unpinPost: (postId: string) => Promise<any>;
-    addReaction: (userId: string, postId: string, emojiName: string) => Promise<any>;
+    addReaction: (userId: string, postId: string, emojiName: string) => Promise<Reaction>;
     removeReaction: (userId: string, postId: string, emojiName: string) => Promise<any>;
     getReactionsForPost: (postId: string) => Promise<any>;
-    searchPostsWithParams: (teamId: string, params: any) => Promise<any>;
-    searchPosts: (teamId: string, terms: string, isOrSearch: boolean) => Promise<any>;
+    searchPostsWithParams: (teamId: string, params: PostSearchParams) => Promise<any>;
+    searchPosts: (teamId: string, terms: string, isOrSearch: boolean) => Promise<PostResponse>;
     doPostAction: (postId: string, actionId: string, selectedOption?: string) => Promise<any>;
     doPostActionWithCookie: (postId: string, actionId: string, actionCookie: string, selectedOption?: string) => Promise<any>;
 }
 
-const ClientPosts = (superclass: any) => class extends superclass {
+const ClientPosts = <TBase extends Constructor<ClientBase>>(superclass: TBase) => class extends superclass {
     createPost = async (post: Post) => {
-        analytics.trackAPI('api_posts_create', {channel_id: post.channel_id});
+        this.analytics?.trackAPI('api_posts_create', {channel_id: post.channel_id});
 
         if (post.root_id != null && post.root_id !== '') {
-            analytics.trackAPI('api_posts_replied', {channel_id: post.channel_id});
+            this.analytics?.trackAPI('api_posts_replied', {channel_id: post.channel_id});
         }
 
         return this.doFetch(
             `${this.getPostsRoute()}`,
-            {method: 'post', body: JSON.stringify(post)},
+            {method: 'post', body: post, noRetry: true},
         );
     };
 
     updatePost = async (post: Post) => {
-        analytics.trackAPI('api_posts_update', {channel_id: post.channel_id});
+        this.analytics?.trackAPI('api_posts_update', {channel_id: post.channel_id});
 
         return this.doFetch(
             `${this.getPostRoute(post.id)}`,
-            {method: 'put', body: JSON.stringify(post)},
+            {method: 'put', body: post},
         );
     };
 
@@ -70,16 +64,16 @@ const ClientPosts = (superclass: any) => class extends superclass {
     };
 
     patchPost = async (postPatch: Partial<Post> & {id: string}) => {
-        analytics.trackAPI('api_posts_patch', {channel_id: postPatch.channel_id});
+        this.analytics?.trackAPI('api_posts_patch', {channel_id: postPatch.channel_id});
 
         return this.doFetch(
             `${this.getPostRoute(postPatch.id)}/patch`,
-            {method: 'put', body: JSON.stringify(postPatch)},
+            {method: 'put', body: postPatch},
         );
     };
 
     deletePost = async (postId: string) => {
-        analytics.trackAPI('api_posts_delete');
+        this.analytics?.trackAPI('api_posts_delete');
 
         return this.doFetch(
             `${this.getPostRoute(postId)}`,
@@ -87,87 +81,51 @@ const ClientPosts = (superclass: any) => class extends superclass {
         );
     };
 
-    getPostThread = async (postId: string, fetchThreads = true, collapsedThreads = false, collapsedThreadsExtended = false) => {
+    getPostThread = (postId: string, options: FetchPaginatedThreadOptions) => {
+        const {
+            fetchThreads = true,
+            collapsedThreads = false,
+            collapsedThreadsExtended = false,
+            direction = 'up',
+            fetchAll = false,
+            perPage = fetchAll ? undefined : PER_PAGE_DEFAULT,
+            ...rest
+        } = options;
         return this.doFetch(
-            `${this.getPostRoute(postId)}/thread${buildQueryString({skipFetchThreads: !fetchThreads, collapsedThreads, collapsedThreadsExtended})}`,
+            `${this.getPostRoute(postId)}/thread${buildQueryString({skipFetchThreads: !fetchThreads, collapsedThreads, collapsedThreadsExtended, direction, perPage, ...rest})}`,
             {method: 'get'},
         );
     };
 
-    getPosts = async (channelId: string, page = 0, perPage = PER_PAGE_DEFAULT, fetchThreads = true, collapsedThreads = false, collapsedThreadsExtended = false) => {
+    getPosts = async (channelId: string, page = 0, perPage = PER_PAGE_DEFAULT, collapsedThreads = false, collapsedThreadsExtended = false) => {
         return this.doFetch(
-            `${this.getChannelRoute(channelId)}/posts${buildQueryString({page, per_page: perPage, skipFetchThreads: !fetchThreads, collapsedThreads, collapsedThreadsExtended})}`,
+            `${this.getChannelRoute(channelId)}/posts${buildQueryString({page, per_page: perPage, collapsedThreads, collapsedThreadsExtended})}`,
             {method: 'get'},
         );
     };
 
-    getPostsSince = async (channelId: string, since: number, fetchThreads = true, collapsedThreads = false, collapsedThreadsExtended = false) => {
+    getPostsSince = async (channelId: string, since: number, collapsedThreads = false, collapsedThreadsExtended = false) => {
         return this.doFetch(
-            `${this.getChannelRoute(channelId)}/posts${buildQueryString({since, skipFetchThreads: !fetchThreads, collapsedThreads, collapsedThreadsExtended})}`,
+            `${this.getChannelRoute(channelId)}/posts${buildQueryString({since, collapsedThreads, collapsedThreadsExtended})}`,
             {method: 'get'},
         );
     };
 
-    getPostsBefore = async (channelId: string, postId: string, page = 0, perPage = PER_PAGE_DEFAULT, fetchThreads = true, collapsedThreads = false, collapsedThreadsExtended = false) => {
-        analytics.trackAPI('api_posts_get_before', {channel_id: channelId});
+    getPostsBefore = async (channelId: string, postId: string, page = 0, perPage = PER_PAGE_DEFAULT, collapsedThreads = false, collapsedThreadsExtended = false) => {
+        this.analytics?.trackAPI('api_posts_get_before', {channel_id: channelId});
 
         return this.doFetch(
-            `${this.getChannelRoute(channelId)}/posts${buildQueryString({before: postId, page, per_page: perPage, skipFetchThreads: !fetchThreads, collapsedThreads, collapsedThreadsExtended})}`,
+            `${this.getChannelRoute(channelId)}/posts${buildQueryString({before: postId, page, per_page: perPage, collapsedThreads, collapsedThreadsExtended})}`,
             {method: 'get'},
         );
     };
 
-    getPostsAfter = async (channelId: string, postId: string, page = 0, perPage = PER_PAGE_DEFAULT, fetchThreads = true, collapsedThreads = false, collapsedThreadsExtended = false) => {
-        analytics.trackAPI('api_posts_get_after', {channel_id: channelId});
+    getPostsAfter = async (channelId: string, postId: string, page = 0, perPage = PER_PAGE_DEFAULT, collapsedThreads = false, collapsedThreadsExtended = false) => {
+        this.analytics?.trackAPI('api_posts_get_after', {channel_id: channelId});
 
         return this.doFetch(
-            `${this.getChannelRoute(channelId)}/posts${buildQueryString({after: postId, page, per_page: perPage, skipFetchThreads: !fetchThreads, collapsedThreads, collapsedThreadsExtended})}`,
+            `${this.getChannelRoute(channelId)}/posts${buildQueryString({after: postId, page, per_page: perPage, collapsedThreads, collapsedThreadsExtended})}`,
             {method: 'get'},
-        );
-    };
-
-    getUserThreads = async (userId: string, teamId: string, before = '', after = '', perPage = PER_PAGE_DEFAULT, extended = false, deleted = false, unread = false, since = 0) => {
-        const serverVersion = this.getServerVersion();
-        let queryStringObj;
-        if (isMinimumServerVersion(serverVersion, 6, 0)) {
-            queryStringObj = {before, after, per_page: perPage, extended, deleted, unread, since};
-        } else {
-            queryStringObj = {before, after, pageSize: perPage, extended, deleted, unread, since};
-        }
-        return this.doFetch(
-            `${this.getUserThreadsRoute(userId, teamId)}${buildQueryString(queryStringObj)}`,
-            {method: 'get'},
-        );
-    };
-
-    getUserThread = async (userId: string, teamId: string, threadId: string, extended = false) => {
-        return this.doFetch(
-            `${this.getUserThreadRoute(userId, teamId, threadId)}${buildQueryString({extended})}`,
-            {method: 'get'},
-        );
-    };
-
-    updateThreadsReadForUser = (userId: string, teamId: string) => {
-        const url = `${this.getUserThreadsRoute(userId, teamId)}/read`;
-        return this.doFetch(
-            url,
-            {method: 'put'},
-        );
-    };
-
-    updateThreadReadForUser = (userId: string, teamId: string, threadId: string, timestamp: number) => {
-        const url = `${this.getUserThreadRoute(userId, teamId, threadId)}/read/${timestamp}`;
-        return this.doFetch(
-            url,
-            {method: 'put'},
-        );
-    };
-
-    updateThreadFollowForUser = (userId: string, teamId: string, threadId: string, state: boolean) => {
-        const url = this.getUserThreadRoute(userId, teamId, threadId) + '/following';
-        return this.doFetch(
-            url,
-            {method: state ? 'put' : 'delete'},
         );
     };
 
@@ -178,8 +136,8 @@ const ClientPosts = (superclass: any) => class extends superclass {
         );
     };
 
-    getFlaggedPosts = async (userId: string, channelId = '', teamId = '', page = 0, perPage = PER_PAGE_DEFAULT) => {
-        analytics.trackAPI('api_posts_get_flagged', {team_id: teamId});
+    getSavedPosts = async (userId: string, channelId = '', teamId = '', page = 0, perPage = PER_PAGE_DEFAULT) => {
+        this.analytics?.trackAPI('api_posts_get_flagged', {team_id: teamId});
 
         return this.doFetch(
             `${this.getUserRoute(userId)}/posts/flagged${buildQueryString({channel_id: channelId, team_id: teamId, page, per_page: perPage})}`,
@@ -188,7 +146,7 @@ const ClientPosts = (superclass: any) => class extends superclass {
     };
 
     getPinnedPosts = async (channelId: string) => {
-        analytics.trackAPI('api_posts_get_pinned', {channel_id: channelId});
+        this.analytics?.trackAPI('api_posts_get_pinned', {channel_id: channelId});
         return this.doFetch(
             `${this.getChannelRoute(channelId)}/pinned`,
             {method: 'get'},
@@ -196,16 +154,19 @@ const ClientPosts = (superclass: any) => class extends superclass {
     };
 
     markPostAsUnread = async (userId: string, postId: string) => {
-        analytics.trackAPI('api_post_set_unread_post');
+        this.analytics?.trackAPI('api_post_set_unread_post');
+
+        // collapsed_threads_supported is not based on user preferences but to know if "CLIENT" supports CRT
+        const body = JSON.stringify({collapsed_threads_supported: true});
 
         return this.doFetch(
             `${this.getUserRoute(userId)}/posts/${postId}/set_unread`,
-            {method: 'post', body: JSON.stringify({collapsed_threads_supported: true})},
+            {method: 'post', body},
         );
     };
 
     pinPost = async (postId: string) => {
-        analytics.trackAPI('api_posts_pin');
+        this.analytics?.trackAPI('api_posts_pin');
 
         return this.doFetch(
             `${this.getPostRoute(postId)}/pin`,
@@ -214,7 +175,7 @@ const ClientPosts = (superclass: any) => class extends superclass {
     };
 
     unpinPost = async (postId: string) => {
-        analytics.trackAPI('api_posts_unpin');
+        this.analytics?.trackAPI('api_posts_unpin');
 
         return this.doFetch(
             `${this.getPostRoute(postId)}/unpin`,
@@ -223,16 +184,16 @@ const ClientPosts = (superclass: any) => class extends superclass {
     };
 
     addReaction = async (userId: string, postId: string, emojiName: string) => {
-        analytics.trackAPI('api_reactions_save', {post_id: postId});
+        this.analytics?.trackAPI('api_reactions_save', {post_id: postId});
 
         return this.doFetch(
             `${this.getReactionsRoute()}`,
-            {method: 'post', body: JSON.stringify({user_id: userId, post_id: postId, emoji_name: emojiName})},
+            {method: 'post', body: {user_id: userId, post_id: postId, emoji_name: emojiName}},
         );
     };
 
     removeReaction = async (userId: string, postId: string, emojiName: string) => {
-        analytics.trackAPI('api_reactions_delete', {post_id: postId});
+        this.analytics?.trackAPI('api_reactions_delete', {post_id: postId});
 
         return this.doFetch(
             `${this.getUserRoute(userId)}/posts/${postId}/reactions/${emojiName}`,
@@ -247,18 +208,10 @@ const ClientPosts = (superclass: any) => class extends superclass {
         );
     };
 
-    searchPostsWithParams = async (teamId: string, params: any) => {
-        analytics.trackAPI('api_posts_search', {team_id: teamId});
-
-        let route = `${this.getPostsRoute()}/search`;
-        if (teamId) {
-            route = `${this.getTeamRoute(teamId)}/posts/search`;
-        }
-
-        return this.doFetch(
-            route,
-            {method: 'post', body: JSON.stringify(params)},
-        );
+    searchPostsWithParams = async (teamId: string, params: PostSearchParams) => {
+        this.analytics?.trackAPI('api_posts_search');
+        const endpoint = teamId ? `${this.getTeamRoute(teamId)}/posts/search` : `${this.getPostsRoute()}/search`;
+        return this.doFetch(endpoint, {method: 'post', body: params});
     };
 
     searchPosts = async (teamId: string, terms: string, isOrSearch: boolean) => {
@@ -271,9 +224,9 @@ const ClientPosts = (superclass: any) => class extends superclass {
 
     doPostActionWithCookie = async (postId: string, actionId: string, actionCookie: string, selectedOption = '') => {
         if (selectedOption) {
-            analytics.trackAPI('api_interactive_messages_menu_selected');
+            this.analytics?.trackAPI('api_interactive_messages_menu_selected');
         } else {
-            analytics.trackAPI('api_interactive_messages_button_clicked');
+            this.analytics?.trackAPI('api_interactive_messages_button_clicked');
         }
 
         const msg: any = {
@@ -284,7 +237,7 @@ const ClientPosts = (superclass: any) => class extends superclass {
         }
         return this.doFetch(
             `${this.getPostRoute(postId)}/actions/${encodeURIComponent(actionId)}`,
-            {method: 'post', body: JSON.stringify(msg)},
+            {method: 'post', body: msg},
         );
     };
 };

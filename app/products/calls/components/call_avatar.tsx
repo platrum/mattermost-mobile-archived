@@ -1,31 +1,37 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React from 'react';
+import React, {useMemo} from 'react';
 import {View, StyleSheet, Text, Platform} from 'react-native';
 
 import CompassIcon from '@components/compass_icon';
+import Emoji from '@components/emoji';
 import ProfilePicture from '@components/profile_picture';
 
+import type {EmojiData} from '@mattermost/calls/lib/types';
+import type UserModel from '@typings/database/models/servers/user';
+
 type Props = {
-    userId?: string;
+    userModel?: UserModel;
     volume: number;
+    serverUrl: string;
     muted?: boolean;
     sharingScreen?: boolean;
     raisedHand?: boolean;
+    reaction?: EmojiData;
     size?: 'm' | 'l';
 }
 
-const getStyleSheet = (props: Props) => {
-    const baseSize = props.size === 'm' || !props.size ? 40 : 72;
-    const smallIcon = props.size === 'm' || !props.size;
+const getStyleSheet = ({volume, muted, size}: { volume: number; muted?: boolean; size?: 'm' | 'l' }) => {
+    const baseSize = size === 'm' || !size ? 40 : 72;
+    const smallIcon = size === 'm' || !size;
     const widthHeight = smallIcon ? 20 : 24;
     const borderRadius = smallIcon ? 10 : 12;
     const padding = smallIcon ? 1 : 2;
 
     return StyleSheet.create({
         pictureHalo: {
-            backgroundColor: 'rgba(61, 184, 135,' + (0.24 * props.volume) + ')',
+            backgroundColor: 'rgba(61, 184, 135,' + (0.24 * volume) + ')',
             height: baseSize + 16,
             width: baseSize + 16,
             padding: 4,
@@ -33,7 +39,7 @@ const getStyleSheet = (props: Props) => {
             borderRadius: (baseSize + 16) / 2,
         },
         pictureHalo2: {
-            backgroundColor: 'rgba(61, 184, 135,' + (0.32 * props.volume) + ')',
+            backgroundColor: 'rgba(61, 184, 135,' + (0.32 * volume) + ')',
             height: baseSize + 8,
             width: baseSize + 8,
             padding: 3,
@@ -59,7 +65,7 @@ const getStyleSheet = (props: Props) => {
             height: widthHeight,
             borderRadius,
             padding,
-            backgroundColor: props.muted ? 'black' : '#3DB887',
+            backgroundColor: muted ? 'black' : '#3DB887',
             borderColor: 'black',
             borderWidth: 2,
             color: 'white',
@@ -74,90 +80,106 @@ const getStyleSheet = (props: Props) => {
                 },
             ),
         },
-        raisedHand: {
+        reaction: {
             position: 'absolute',
             overflow: 'hidden',
             top: 0,
             right: -5,
-            backgroundColor: 'black',
-            borderColor: 'black',
-            borderRadius,
-            padding,
-            borderWidth: 2,
             width: widthHeight,
             height: widthHeight,
+            borderRadius,
+            padding,
+            backgroundColor: 'black',
+            borderColor: 'black',
+            borderWidth: 2,
             fontSize: smallIcon ? 10 : 12,
+        },
+        raisedHand: {
+            backgroundColor: 'white',
+            right: -5,
             ...Platform.select(
                 {
                     android: {
-                        paddingLeft: 4,
-                        paddingTop: 2,
+                        paddingLeft: 5,
+                        paddingTop: 3,
                         color: 'rgb(255, 188, 66)',
                     },
                 },
             ),
         },
         screenSharing: {
-            position: 'absolute',
-            top: 0,
-            right: -5,
-            width: widthHeight,
-            height: widthHeight,
-            borderRadius,
             padding: padding + 1,
             backgroundColor: '#D24B4E',
-            borderColor: 'black',
-            borderWidth: 2,
             color: 'white',
             textAlign: 'center',
             textAlignVertical: 'center',
-            overflow: 'hidden',
+            paddingTop: Platform.select({ios: 3}),
+        },
+        emoji: {
+            paddingLeft: 1,
+            paddingTop: Platform.select({ios: 2, default: 1}),
         },
     });
 };
 
-const CallAvatar = (props: Props) => {
-    const style = getStyleSheet(props);
-    const profileSize = props.size === 'm' || !props.size ? 40 : 72;
-    const iconSize = props.size === 'm' || !props.size ? 12 : 16;
-    const styleShadow = props.volume > 0 ? style.voiceShadow : {};
+const CallAvatar = ({userModel, volume, serverUrl, sharingScreen, size, muted, raisedHand, reaction}: Props) => {
+    const style = useMemo(() => getStyleSheet({volume, muted, size}), [volume, muted, size]);
+    const profileSize = size === 'm' || !size ? 40 : 72;
+    const iconSize = size === 'm' || !size ? 12 : 16;
+    const styleShadow = volume > 0 ? style.voiceShadow : undefined;
 
     // Only show one or the other.
     let topRightIcon: JSX.Element | null = null;
-    if (props.sharingScreen) {
+    if (sharingScreen) {
         topRightIcon = (
             <CompassIcon
                 name={'monitor'}
                 size={iconSize}
-                style={style.screenSharing}
+                style={[style.reaction, style.screenSharing]}
             />
         );
-    } else if (props.raisedHand) {
+    } else if (raisedHand) {
         topRightIcon = (
-            <Text style={style.raisedHand}>
+            <Text style={[style.reaction, style.raisedHand]}>
                 {'✋'}
             </Text>
         );
     }
 
+    // An emoji will override the top right indicator.
+    if (reaction) {
+        topRightIcon = (
+            <View style={[style.reaction, style.emoji]}>
+                <Emoji
+                    emojiName={reaction.name}
+                    literal={reaction.literal}
+                    size={iconSize - 3}
+                />
+            </View>
+        );
+    }
+
+    const profile = userModel ? (
+        <ProfilePicture
+            author={userModel}
+            size={profileSize}
+            showStatus={false}
+            url={serverUrl}
+        />
+    ) : (
+        <CompassIcon
+            name='account-outline'
+            size={profileSize}
+        />
+    );
+
     const view = (
         <View style={[style.picture, styleShadow]}>
+            {profile}
             {
-                props.userId ?
-                    <ProfilePicture
-                        userId={props.userId}
-                        size={profileSize}
-                        showStatus={false}
-                    /> :
-                    <CompassIcon
-                        name='account-outline'
-                        size={profileSize}
-                    />
-            }
-            {
-                props.muted !== undefined &&
+                muted !== undefined &&
                 <CompassIcon
-                    name={props.muted ? 'microphone-off' : 'microphone'}
+                    name={muted ? 'microphone-off' : 'microphone'}
                     size={iconSize}
                     style={style.mute}
                 />
@@ -178,4 +200,5 @@ const CallAvatar = (props: Props) => {
 
     return view;
 };
+
 export default CallAvatar;

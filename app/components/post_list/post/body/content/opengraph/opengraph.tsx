@@ -2,23 +2,20 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {intlShape, injectIntl} from 'react-intl';
-import {Alert, Text, View} from 'react-native';
+import {useIntl} from 'react-intl';
+import {Alert, Text, TouchableOpacity, View} from 'react-native';
 
-import TouchableWithFeedback from '@components/touchable_with_feedback';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {tryOpenURL} from '@utils/url';
 
 import OpengraphImage from './opengraph_image';
 
-import type {Post} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
-
 type OpengraphProps = {
-    intl: typeof intlShape;
     isReplyPost: boolean;
-    openGraphData?: Record<string, unknown>;
-    post: Post;
+    layoutWidth?: number;
+    location: string;
+    metadata: PostMetadata | undefined | null;
+    postId: string;
     showLinkPreviews: boolean;
     theme: Theme;
 }
@@ -52,18 +49,31 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     };
 });
 
-const Opengraph = ({intl, isReplyPost, openGraphData, post, showLinkPreviews, theme}: OpengraphProps) => {
+const selectOpenGraphData = (url: string, metadata: PostMetadata | undefined | null) => {
+    if (!metadata?.embeds) {
+        return undefined;
+    }
+
+    return metadata.embeds.find((embed) => {
+        return embed.type === 'opengraph' && embed.url === url ? embed.data : undefined;
+    })?.data;
+};
+
+const Opengraph = ({isReplyPost, layoutWidth, location, metadata, postId, showLinkPreviews, theme}: OpengraphProps) => {
+    const intl = useIntl();
+    const link = metadata?.embeds![0]!.url || '';
+    const openGraphData = selectOpenGraphData(link, metadata);
+
     if (!showLinkPreviews || !openGraphData) {
         return null;
     }
 
     const style = getStyleSheet(theme);
-    const link = post.metadata?.embeds?.[0]?.url;
     const hasImage = Boolean(
         openGraphData?.images &&
         openGraphData.images instanceof Array &&
-        openGraphData.images?.length &&
-        post.metadata?.images);
+        openGraphData.images.length &&
+        metadata?.images);
 
     const goToLink = () => {
         const onError = () => {
@@ -97,24 +107,23 @@ const Opengraph = ({intl, isReplyPost, openGraphData, post, showLinkPreviews, th
         );
     }
 
-    const title = openGraphData.title || openGraphData.url || link;
+    const title: string | undefined = openGraphData.title || openGraphData.url || link;
     let siteTitle;
     if (title) {
         siteTitle = (
-            <View style={style.wrapper}>
-                <TouchableWithFeedback
+            <View>
+                <TouchableOpacity
                     style={style.flex}
                     onPress={goToLink}
-                    type={'opacity'}
                 >
                     <Text
                         style={[style.siteTitle, {marginRight: isReplyPost ? 10 : 0}]}
                         numberOfLines={3}
                         ellipsizeMode='tail'
                     >
-                        {title as string}
+                        {title}
                     </Text>
-                </TouchableWithFeedback>
+                </TouchableOpacity>
             </View>
         );
     }
@@ -142,8 +151,11 @@ const Opengraph = ({intl, isReplyPost, openGraphData, post, showLinkPreviews, th
             {hasImage &&
             <OpengraphImage
                 isReplyPost={isReplyPost}
+                layoutWidth={layoutWidth}
+                location={location}
                 openGraphImages={openGraphData.images as never[]}
-                post={post}
+                metadata={metadata}
+                postId={postId}
                 theme={theme}
             />
             }
@@ -151,4 +163,4 @@ const Opengraph = ({intl, isReplyPost, openGraphData, post, showLinkPreviews, th
     );
 };
 
-export default injectIntl(Opengraph);
+export default React.memo(Opengraph);

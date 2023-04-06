@@ -4,44 +4,45 @@
 import React from 'react';
 
 import CustomStatusEmoji from '@components/custom_status/custom_status_emoji';
-import {CustomStatusDuration} from '@mm-redux/types/users';
-import * as CustomStatusSelectors from '@selectors/custom_status';
-import {renderWithRedux} from '@test/testing_library';
+import {CustomStatusDurationEnum} from '@constants/custom_status';
+import {renderWithEverything} from '@test/intl-test-helper';
+import TestHelper from '@test/test_helper';
 
-jest.mock('@selectors/custom_status');
+import type Database from '@nozbe/watermelondb/Database';
 
 describe('components/custom_status/custom_status_emoji', () => {
-    const getCustomStatus = () => {
-        return {
-            emoji: 'calendar',
-            text: 'In a meeting',
-            duration: CustomStatusDuration.DONT_CLEAR,
-        };
+    let database: Database | undefined;
+    beforeAll(async () => {
+        const server = await TestHelper.setupServerDatabase();
+        database = server.database;
+    });
+
+    const customStatus: UserCustomStatus = {
+        emoji: 'calendar',
+        text: 'In a meeting',
+        duration: CustomStatusDurationEnum.DONT_CLEAR,
     };
-    (CustomStatusSelectors.makeGetCustomStatus as jest.Mock).mockReturnValue(getCustomStatus);
     it('should match snapshot', () => {
-        const wrapper = renderWithRedux(
-            <CustomStatusEmoji/>,
+        const wrapper = renderWithEverything(
+            <CustomStatusEmoji
+                customStatus={customStatus}
+                testID='test'
+            />,
+            {database},
         );
         expect(wrapper.toJSON()).toMatchSnapshot();
     });
 
     it('should match snapshot with props', () => {
-        const wrapper = renderWithRedux(
+        const wrapper = renderWithEverything(
             <CustomStatusEmoji
+                customStatus={customStatus}
                 emojiSize={34}
+                testID='test'
             />,
+            {database},
         );
 
         expect(wrapper.toJSON()).toMatchSnapshot();
-    });
-
-    it('should not render when getCustomStatus returns null', () => {
-        (CustomStatusSelectors.makeGetCustomStatus as jest.Mock).mockReturnValue(() => null);
-        const wrapper = renderWithRedux(
-            <CustomStatusEmoji/>,
-        );
-
-        expect(wrapper.toJSON()).toBeNull();
     });
 });

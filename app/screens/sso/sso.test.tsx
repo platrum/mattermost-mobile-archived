@@ -2,28 +2,41 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {Linking} from 'react-native';
-import configureMockStore from 'redux-mock-store';
 
-import initialState from '@store/initial_state';
-import {renderWithReduxIntl} from '@test/testing_library';
+import {Preferences, Screens} from '@constants';
+import LaunchType from '@constants/launch';
+import {renderWithIntl} from '@test/intl-test-helper';
 
-import SSOComponent from './index';
+import SSOLogin from './index';
+
+jest.mock('@screens/navigation', () => {
+    return {
+        getThemeFromState: () => 'light',
+    };
+});
+
+jest.mock('@utils/url', () => {
+    return {
+        tryOpenURL: () => true,
+    };
+});
 
 describe('SSO', () => {
     const baseProps = {
-        config: {},
+        componentId: Screens.SSO,
         license: {
             IsLicensed: 'true',
         },
+        ssoType: 'GITLAB',
+        theme: Preferences.THEMES.denim,
+        serverUrl: 'https://locahost:8065',
+        serverDisplayName: 'Test Server',
+        launchType: LaunchType.Normal,
     };
 
-    test('implement with OS browser & redirect url', async () => {
-        (Linking.openURL as jest.Mock).mockResolvedValueOnce('');
-        const mockStore = configureMockStore();
-        const store = mockStore(initialState);
-        const basicWrapper = renderWithReduxIntl(<SSOComponent {...baseProps}/>, store);
-        expect(basicWrapper.queryByTestId('sso.webview')).toBeFalsy();
-        expect(basicWrapper.queryByTestId('sso.redirect_url')).toBeTruthy();
+    test('implement with OS browser & redirect url from version 5.33', async () => {
+        const props = {...baseProps, config: {Version: '5.36.0'}};
+        const {getByTestId} = renderWithIntl(<SSOLogin {...props}/>);
+        expect(getByTestId('sso.redirect_url')).toBeTruthy();
     });
 });

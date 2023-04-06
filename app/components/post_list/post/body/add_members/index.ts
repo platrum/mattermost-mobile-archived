@@ -1,46 +1,26 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {connect} from 'react-redux';
+import {withDatabase} from '@nozbe/watermelondb/DatabaseProvider';
+import withObservables from '@nozbe/with-observables';
+import {of as of$} from 'rxjs';
+import {switchMap} from 'rxjs/operators';
 
-import {sendAddToChannelEphemeralPost} from '@actions/views/post';
-import {addChannelMember} from '@mm-redux/actions/channels';
-import {removePost} from '@mm-redux/actions/posts';
-import {getChannel} from '@mm-redux/selectors/entities/channels';
-import {getCurrentUser} from '@mm-redux/selectors/entities/users';
+import {observeChannel} from '@queries/servers/channel';
+import {observeCurrentUser} from '@queries/servers/user';
 
 import AddMembers from './add_members';
 
-import type {Post} from '@mm-redux/types/posts';
-import type {GlobalState} from '@mm-redux/types/store';
-import type {Theme} from '@mm-redux/types/theme';
+import type {WithDatabaseArgs} from '@typings/database/database';
+import type PostModel from '@typings/database/models/servers/post';
 
-type OwnProps = {
-    post: Post;
-    theme: Theme;
-}
+const enhance = withObservables(['post'], ({database, post}: WithDatabaseArgs & {post: PostModel}) => ({
+    currentUser: observeCurrentUser(database),
+    channelType: observeChannel(database, post.channelId).pipe(
+        switchMap(
+            (channel) => (channel ? of$(channel.type) : of$(null)),
+        ),
+    ),
+}));
 
-function mapStateToProps(state: GlobalState, ownProps: OwnProps) {
-    const {post} = ownProps;
-    let channelType = '';
-    if (post.channel_id) {
-        const channel = getChannel(state, post.channel_id);
-        if (channel?.type) {
-            channelType = channel.type;
-        }
-    }
-
-    return {
-        channelType,
-        currentUser: getCurrentUser(state),
-        post,
-    };
-}
-
-const mapDispatchToProps = {
-    addChannelMember,
-    removePost,
-    sendAddToChannelEphemeralPost,
-};
-
-export default connect(mapStateToProps, mapDispatchToProps)(AddMembers);
+export default withDatabase(enhance(AddMembers));

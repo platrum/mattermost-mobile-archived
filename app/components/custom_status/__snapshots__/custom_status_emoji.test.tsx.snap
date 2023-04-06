@@ -1,14 +1,15 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`components/custom_status/custom_status_emoji should match snapshot 1`] = `
-<Text
-  testID="custom_status_emoji.calendar"
+<View
+  testID="test.custom_status.custom_status_emoji.calendar"
 >
   <Text
     style={
-      Array [
+      [
         undefined,
-        Object {
+        {
+          "color": "#000",
           "fontSize": 16,
         },
       ]
@@ -16,18 +17,19 @@ exports[`components/custom_status/custom_status_emoji should match snapshot 1`] 
   >
     📆
   </Text>
-</Text>
+</View>
 `;
 
 exports[`components/custom_status/custom_status_emoji should match snapshot with props 1`] = `
-<Text
-  testID="custom_status_emoji.calendar"
+<View
+  testID="test.custom_status.custom_status_emoji.calendar"
 >
   <Text
     style={
-      Array [
+      [
         undefined,
-        Object {
+        {
+          "color": "#000",
           "fontSize": 34,
         },
       ]
@@ -35,5 +37,5 @@ exports[`components/custom_status/custom_status_emoji should match snapshot with
   >
     📆
   </Text>
-</Text>
+</View>
 `;

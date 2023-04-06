@@ -4,16 +4,15 @@
 import React from 'react';
 import {StyleSheet, View} from 'react-native';
 
-import {MessageAttachment as MessageAttachmentType} from '@mm-redux/types/message_attachments';
-import {PostMetadata} from '@mm-redux/types/posts';
-import {Theme} from '@mm-redux/types/theme';
-
 import MessageAttachment from './message_attachment';
 
 type Props = {
-    attachments: MessageAttachmentType[];
+    attachments: MessageAttachment[];
+    channelId: string;
+    layoutWidth?: number;
+    location: string;
+    metadata?: PostMetadata | undefined | null;
     postId: string;
-    metadata?: PostMetadata;
     theme: Theme;
 }
 
@@ -24,14 +23,17 @@ const styles = StyleSheet.create({
     },
 });
 
-const MessageAttachments = ({attachments, metadata, postId, theme}: Props) => {
-    const content = [] as React.ReactNode[];
+const MessageAttachments = ({attachments, channelId, layoutWidth, location, metadata, postId, theme}: Props) => {
+    const content: React.ReactNode[] = [];
 
     attachments.forEach((attachment, i) => {
         content.push(
             <MessageAttachment
                 attachment={attachment}
+                channelId={channelId}
                 key={'att_' + i.toString()}
+                layoutWidth={layoutWidth}
+                location={location}
                 metadata={metadata}
                 postId={postId}
                 theme={theme}

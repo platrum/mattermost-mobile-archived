@@ -1,70 +1,98 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {getAddedDmUsersIfNecessary} from '@actions/helpers/channels';
-import {handleCRTPreferenceChange} from '@actions/views/crt';
-import {getPost} from '@actions/views/post';
-import {PreferenceTypes} from '@mm-redux/action_types';
-import {Preferences} from '@mm-redux/constants';
-import {getAllPosts} from '@mm-redux/selectors/entities/posts';
-import {ActionResult, DispatchFunc, GenericAction, GetStateFunc, batchActions} from '@mm-redux/types/actions';
-import {PreferenceType} from '@mm-redux/types/preferences';
-import {WebSocketMessage} from '@mm-redux/types/websocket';
+import {updateDmGmDisplayName} from '@actions/local/channel';
+import {fetchPostById} from '@actions/remote/post';
+import {handleCRTToggled} from '@actions/remote/preference';
+import {Preferences} from '@constants';
+import DatabaseManager from '@database/manager';
+import {getPostById} from '@queries/servers/post';
+import {deletePreferences, differsFromLocalNameFormat, getHasCRTChanged} from '@queries/servers/preference';
+import EphemeralStore from '@store/ephemeral_store';
 
-export function handlePreferenceChangedEvent(msg: WebSocketMessage) {
-    return async (dispatch: DispatchFunc, getState: GetStateFunc): Promise<ActionResult> => {
-        const preference = JSON.parse(msg.data.preference);
-        const actions: GenericAction[] = [{
-            type: PreferenceTypes.RECEIVED_PREFERENCES,
-            data: [preference],
-        }];
-        const crtPreferenceChanged = dispatch(handleCRTPreferenceChange([preference])) as ActionResult;
-        if (crtPreferenceChanged.data) {
-            return {data: true};
-        }
-        const state = getState();
-        const dmActions = await getAddedDmUsersIfNecessary(state, [preference]);
-        if (dmActions.length) {
-            actions.push(...dmActions);
-        }
-        dispatch(batchActions(actions, 'BATCH_WS_PREFERENCE_CHANGED'));
-        return {data: true};
-    };
-}
+export async function handlePreferenceChangedEvent(serverUrl: string, msg: WebSocketMessage): Promise<void> {
+    if (EphemeralStore.isEnablingCRT()) {
+        return;
+    }
 
-export function handlePreferencesChangedEvent(msg: WebSocketMessage) {
-    return async (dispatch: DispatchFunc, getState: GetStateFunc): Promise<ActionResult> => {
-        const preferences: PreferenceType[] = JSON.parse(msg.data.preferences);
-        const posts = getAllPosts(getState());
-        const actions: GenericAction[] = [{
-            type: PreferenceTypes.RECEIVED_PREFERENCES,
-            data: preferences,
-        }];
+    try {
+        const {database, operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const preference: PreferenceType = JSON.parse(msg.data.preference);
+        handleSavePostAdded(serverUrl, [preference]);
 
-        preferences.forEach((pref) => {
-            if (pref.category === Preferences.CATEGORY_FLAGGED_POST && !posts[pref.name]) {
-                dispatch(getPost(pref.name));
-            }
+        const hasDiffNameFormatPref = await differsFromLocalNameFormat(database, [preference]);
+        const crtToggled = await getHasCRTChanged(database, [preference]);
+
+        await operator.handlePreferences({
+            prepareRecordsOnly: false,
+            preferences: [preference],
         });
 
-        const crtPreferenceChanged = dispatch(handleCRTPreferenceChange(preferences)) as ActionResult;
-        if (crtPreferenceChanged.data) {
-            return {data: true};
+        if (hasDiffNameFormatPref) {
+            updateDmGmDisplayName(serverUrl);
         }
 
-        const state = getState();
-        const dmActions = await getAddedDmUsersIfNecessary(state, preferences);
-        if (dmActions.length) {
-            actions.push(...dmActions);
+        if (crtToggled) {
+            handleCRTToggled(serverUrl);
         }
-
-        dispatch(batchActions(actions, 'BATCH_WS_PREFERENCES_CHANGED'));
-        return {data: true};
-    };
+    } catch (error) {
+        // Do nothing
+    }
 }
 
-export function handlePreferencesDeletedEvent(msg: WebSocketMessage): GenericAction {
-    const preferences = JSON.parse(msg.data.preferences);
+export async function handlePreferencesChangedEvent(serverUrl: string, msg: WebSocketMessage): Promise<void> {
+    if (EphemeralStore.isEnablingCRT()) {
+        return;
+    }
 
-    return {type: PreferenceTypes.DELETED_PREFERENCES, data: preferences};
+    try {
+        const {database, operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const preferences: PreferenceType[] = JSON.parse(msg.data.preferences);
+        handleSavePostAdded(serverUrl, preferences);
+
+        const hasDiffNameFormatPref = await differsFromLocalNameFormat(database, preferences);
+        const crtToggled = await getHasCRTChanged(database, preferences);
+
+        await operator.handlePreferences({
+            prepareRecordsOnly: false,
+            preferences,
+        });
+
+        if (hasDiffNameFormatPref) {
+            updateDmGmDisplayName(serverUrl);
+        }
+
+        if (crtToggled) {
+            handleCRTToggled(serverUrl);
+        }
+    } catch (error) {
+        // Do nothing
+    }
+}
+
+export async function handlePreferencesDeletedEvent(serverUrl: string, msg: WebSocketMessage): Promise<void> {
+    try {
+        const databaseAndOperator = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const preferences: PreferenceType[] = JSON.parse(msg.data.preferences);
+        deletePreferences(databaseAndOperator, preferences);
+    } catch {
+        // Do nothing
+    }
+}
+
+// If preferences include new save posts we fetch them
+async function handleSavePostAdded(serverUrl: string, preferences: PreferenceType[]) {
+    try {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const savedPosts = preferences.filter((p) => p.category === Preferences.CATEGORIES.SAVED_POST);
+
+        for await (const saved of savedPosts) {
+            const post = await getPostById(database, saved.name);
+            if (!post) {
+                await fetchPostById(serverUrl, saved.name, false);
+            }
+        }
+    } catch {
+        // Do nothing
+    }
 }

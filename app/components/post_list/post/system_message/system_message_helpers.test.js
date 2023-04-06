@@ -3,30 +3,42 @@
 
 import React from 'react';
 
-import {Posts, Preferences} from '@mm-redux/constants';
-import {renderWithReduxIntl} from '@test/testing_library';
+import {Post} from '@constants';
+import {renderWithEverything} from '@test/intl-test-helper';
+import TestHelper from '@test/test_helper';
 
-import SystemMessage from './system_message';
+import {SystemMessage} from './system_message';
 
 const baseProps = {
-    ownerUsername: 'username',
-    theme: Preferences.THEMES.denim,
+    author: {
+        id: 'me',
+        username: 'username',
+        firstName: 'Test',
+        lastName: 'Author',
+    },
 };
 
 describe('renderSystemMessage', () => {
+    let database;
+    beforeAll(async () => {
+        const server = await TestHelper.setupServerDatabase();
+        database = server.database;
+    });
+
     test('uses renderer for Channel Header update', () => {
         const post = {
             props: {
                 old_header: 'old header',
                 new_header: 'new header',
             },
-            type: Posts.POST_TYPES.HEADER_CHANGE,
+            type: Post.POST_TYPES.HEADER_CHANGE,
         };
-        const {getByText, toJSON} = renderWithReduxIntl(
+        const {getByText, toJSON} = renderWithEverything(
             <SystemMessage
                 post={post}
                 {...baseProps}
             />,
+            {database},
         );
         expect(toJSON()).toMatchSnapshot();
         expect(getByText('@username')).toBeTruthy();
@@ -39,14 +51,15 @@ describe('renderSystemMessage', () => {
                 old_displayname: 'old displayname',
                 new_displayname: 'new displayname',
             },
-            type: Posts.POST_TYPES.DISPLAYNAME_CHANGE,
+            type: Post.POST_TYPES.DISPLAYNAME_CHANGE,
         };
 
-        const {getByText, toJSON} = renderWithReduxIntl(
+        const {getByText, toJSON} = renderWithEverything(
             <SystemMessage
                 post={post}
                 {...baseProps}
             />,
+            {database},
         );
         expect(toJSON()).toMatchSnapshot();
         expect(getByText('@username')).toBeTruthy();
@@ -59,13 +72,14 @@ describe('renderSystemMessage', () => {
                 old_purpose: 'old purpose',
                 new_purpose: 'new purpose',
             },
-            type: Posts.POST_TYPES.PURPOSE_CHANGE,
+            type: Post.POST_TYPES.PURPOSE_CHANGE,
         };
-        const {getByText, toJSON} = renderWithReduxIntl(
+        const {getByText, toJSON} = renderWithEverything(
             <SystemMessage
                 post={post}
                 {...baseProps}
             />,
+            {database},
         );
         expect(toJSON()).toMatchSnapshot();
         expect(getByText('@username updated the channel purpose from: old purpose to: new purpose')).toBeTruthy();
@@ -73,14 +87,15 @@ describe('renderSystemMessage', () => {
 
     test('uses renderer for archived channel', () => {
         const post = {
-            type: Posts.POST_TYPES.CHANNEL_DELETED,
+            type: Post.POST_TYPES.CHANNEL_DELETED,
         };
 
-        const {getByText, toJSON} = renderWithReduxIntl(
+        const {getByText, toJSON} = renderWithEverything(
             <SystemMessage
                 post={post}
                 {...baseProps}
             />,
+            {database},
         );
         expect(toJSON()).toMatchSnapshot();
         expect(getByText('@username')).toBeTruthy();
@@ -90,15 +105,16 @@ describe('renderSystemMessage', () => {
     test('uses renderer for OLD archived channel without a username', () => {
         const post = {
             props: {},
-            type: Posts.POST_TYPES.CHANNEL_DELETED,
+            type: Post.POST_TYPES.CHANNEL_DELETED,
         };
 
-        const {getByText, toJSON} = renderWithReduxIntl(
+        const {getByText, toJSON} = renderWithEverything(
             <SystemMessage
                 {...baseProps}
                 post={post}
-                ownerUsername={''}
+                author={undefined}
             />,
+            {database},
         );
         expect(toJSON()).toMatchSnapshot();
         expect(getByText('archived the channel')).toBeTruthy();
@@ -106,25 +122,27 @@ describe('renderSystemMessage', () => {
 
     test('uses renderer for unarchived channel', () => {
         const post = {
-            type: Posts.POST_TYPES.CHANNEL_UNARCHIVED,
+            type: Post.POST_TYPES.CHANNEL_UNARCHIVED,
         };
 
-        const viewOne = renderWithReduxIntl(
+        const viewOne = renderWithEverything(
             <SystemMessage
                 {...baseProps}
                 post={post}
             />,
+            {database},
         );
         expect(viewOne.toJSON()).toMatchSnapshot();
         expect(viewOne.getByText('@username')).toBeTruthy();
         expect(viewOne.getByText('unarchived the channel')).toBeTruthy();
 
-        const viewTwo = renderWithReduxIntl(
+        const viewTwo = renderWithEverything(
             <SystemMessage
                 {...baseProps}
                 post={post}
-                ownerUsername=''
+                author={undefined}
             />,
+            {database},
         );
         expect(viewTwo.toJSON()).toBeNull();
         expect(viewTwo.queryByText('archived the channel')).toBeFalsy();
@@ -135,11 +153,12 @@ describe('renderSystemMessage', () => {
             postType: 'not_relevant',
         };
 
-        const renderedMessage = renderWithReduxIntl(
+        const renderedMessage = renderWithEverything(
             <SystemMessage
                 {...baseProps}
                 post={post}
             />,
+            {database},
         );
         expect(renderedMessage.toJSON()).toBeNull();
     });
@@ -149,29 +168,31 @@ describe('renderSystemMessage', () => {
             props: {
                 username: 'username',
             },
-            type: Posts.POST_TYPES.GUEST_JOIN_CHANNEL,
+            type: Post.POST_TYPES.GUEST_JOIN_CHANNEL,
         };
-        const joined = renderWithReduxIntl(
+        const joined = renderWithEverything(
             <SystemMessage
                 post={post}
                 {...baseProps}
             />,
+            {database},
         );
         expect(joined.toJSON()).toMatchSnapshot();
         expect(joined.getByText('@username')).toBeTruthy();
         expect(joined.getByText('joined the channel as a guest.')).toBeTruthy();
 
-        post.type = Posts.POST_TYPES.ADD_GUEST_TO_CHANNEL;
+        post.type = Post.POST_TYPES.ADD_GUEST_TO_CHANNEL;
         post.props = {
             username: 'username',
             addedUsername: 'other.user',
         };
 
-        const added = renderWithReduxIntl(
+        const added = renderWithEverything(
             <SystemMessage
                 post={post}
                 {...baseProps}
             />,
+            {database},
         );
         expect(added.toJSON()).toMatchSnapshot();
         expect(added.getByText('@other.user')).toBeTruthy();

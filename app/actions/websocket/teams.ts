@@ -1,106 +1,166 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {Client4} from '@client/rest';
-import {RoleTypes, TeamTypes} from '@mm-redux/action_types';
-import {notVisibleUsersActions} from '@mm-redux/actions/helpers';
-import {getCurrentTeamId, getTeams as getTeamsSelector} from '@mm-redux/selectors/entities/teams';
-import {getCurrentUser} from '@mm-redux/selectors/entities/users';
-import {ActionResult, DispatchFunc, GenericAction, GetStateFunc, batchActions} from '@mm-redux/types/actions';
-import {WebSocketMessage} from '@mm-redux/types/websocket';
-import EventEmitter from '@mm-redux/utils/event_emitter';
-import {isGuest} from '@mm-redux/utils/user_utils';
+import {removeUserFromTeam} from '@actions/local/team';
+import {fetchMyChannelsForTeam} from '@actions/remote/channel';
+import {fetchRoles} from '@actions/remote/role';
+import {fetchMyTeam, handleKickFromTeam, updateCanJoinTeams} from '@actions/remote/team';
+import {updateUsersNoLongerVisible} from '@actions/remote/user';
+import DatabaseManager from '@database/manager';
+import NetworkManager from '@managers/network_manager';
+import {prepareCategoriesAndCategoriesChannels} from '@queries/servers/categories';
+import {prepareMyChannelsForTeam} from '@queries/servers/channel';
+import {getCurrentTeam, prepareMyTeams, queryMyTeamsByIds} from '@queries/servers/team';
+import {getCurrentUser} from '@queries/servers/user';
+import EphemeralStore from '@store/ephemeral_store';
+import {setTeamLoading} from '@store/team_load_store';
+import {logDebug} from '@utils/log';
 
-export function handleLeaveTeamEvent(msg: Partial<WebSocketMessage>) {
-    return async (dispatch: DispatchFunc, getState: GetStateFunc): Promise<ActionResult> => {
-        const state = getState();
-        const teams = getTeamsSelector(state);
-        const currentTeamId = getCurrentTeamId(state);
-        const currentUser = getCurrentUser(state);
+import type ServerDataOperator from '@database/operator/server_data_operator';
+import type {Model} from '@nozbe/watermelondb';
 
-        if (currentUser.id === msg.data.user_id) {
-            const actions: GenericAction[] = [{type: TeamTypes.LEAVE_TEAM, data: teams[msg.data.team_id]}];
-            if (isGuest(currentUser.roles)) {
-                const notVisible = await notVisibleUsersActions(state);
-                if (notVisible.length) {
-                    actions.push(...notVisible);
-                }
+export async function handleTeamArchived(serverUrl: string, msg: WebSocketMessage) {
+    try {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const team: Team = JSON.parse(msg.data.team);
+
+        const membership = (await queryMyTeamsByIds(database, [team.id]).fetch())[0];
+        if (membership) {
+            const currentTeam = await getCurrentTeam(database);
+            if (currentTeam?.id === team.id) {
+                await handleKickFromTeam(serverUrl, team.id);
             }
-            dispatch(batchActions(actions, 'BATCH_WS_LEAVE_TEAM'));
 
-            // if they are on the team being removed deselect the current team and channel
-            if (currentTeamId === msg.data.team_id) {
-                EventEmitter.emit('leave_team');
+            await removeUserFromTeam(serverUrl, team.id);
+
+            const user = await getCurrentUser(database);
+            if (user?.isGuest) {
+                updateUsersNoLongerVisible(serverUrl);
             }
         }
-        return {data: true};
-    };
+        updateCanJoinTeams(serverUrl);
+    } catch (error) {
+        logDebug('cannot handle archive team websocket event', error);
+    }
 }
 
-export function handleUpdateTeamEvent(msg: WebSocketMessage): GenericAction {
-    return {
-        type: TeamTypes.UPDATED_TEAM,
-        data: JSON.parse(msg.data.team),
-    };
-}
+export async function handleTeamRestored(serverUrl: string, msg: WebSocketMessage) {
+    let markedAsLoading = false;
+    try {
+        const client = NetworkManager.getClient(serverUrl);
+        const {operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const team: Team = JSON.parse(msg.data.team);
 
-export function handleTeamAddedEvent(msg: WebSocketMessage) {
-    return async (dispatch: DispatchFunc): Promise<ActionResult> => {
-        try {
-            const teamId = msg.data.team_id;
-            const userId = msg.data.user_id;
-            const [team, member, teamUnreads] = await Promise.all([
-                Client4.getTeam(msg.data.team_id),
-                Client4.getTeamMember(teamId, userId),
-                Client4.getMyTeamUnreads(),
-            ]);
-
-            const actions = [];
-            if (team) {
-                actions.push({
-                    type: TeamTypes.RECEIVED_TEAM,
-                    data: team,
-                });
-
-                if (member) {
-                    actions.push({
-                        type: TeamTypes.RECEIVED_MY_TEAM_MEMBER,
-                        data: member,
-                    });
-
-                    if (member.roles) {
-                        const rolesToLoad = new Set<string>();
-                        for (const role of member.roles.split(' ')) {
-                            rolesToLoad.add(role);
-                        }
-
-                        if (rolesToLoad.size > 0) {
-                            const roles = await Client4.getRolesByNames(Array.from(rolesToLoad));
-                            if (roles.length) {
-                                actions.push({
-                                    type: RoleTypes.RECEIVED_ROLES,
-                                    data: roles,
-                                });
-                            }
-                        }
-                    }
-                }
-
-                if (teamUnreads) {
-                    actions.push({
-                        type: TeamTypes.RECEIVED_MY_TEAM_UNREADS,
-                        data: teamUnreads,
-                    });
-                }
+        const teamMembership = await client.getTeamMember(team.id, 'me');
+        if (teamMembership && teamMembership.delete_at === 0) {
+            // Ignore duplicated team join events sent by the server
+            if (EphemeralStore.isAddingToTeam(team.id)) {
+                return;
             }
+            EphemeralStore.startAddingToTeam(team.id);
 
-            if (actions.length) {
-                dispatch(batchActions(actions, 'BATCH_WS_TEAM_ADDED'));
-            }
-        } catch {
-            // do nothing
+            setTeamLoading(serverUrl, true);
+            markedAsLoading = true;
+            await fetchAndStoreJoinedTeamInfo(serverUrl, operator, team.id, [team], [teamMembership]);
+            setTeamLoading(serverUrl, false);
+            markedAsLoading = false;
+
+            EphemeralStore.finishAddingToTeam(team.id);
         }
 
-        return {data: true};
-    };
+        updateCanJoinTeams(serverUrl);
+    } catch (error) {
+        if (markedAsLoading) {
+            setTeamLoading(serverUrl, false);
+        }
+        logDebug('cannot handle restore team websocket event', error);
+    }
 }
+
+export async function handleLeaveTeamEvent(serverUrl: string, msg: WebSocketMessage) {
+    try {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+
+        const user = await getCurrentUser(database);
+        if (!user) {
+            return;
+        }
+
+        const {user_id: userId, team_id: teamId} = msg.data;
+        if (user.id === userId) {
+            const currentTeam = await getCurrentTeam(database);
+            if (currentTeam?.id === teamId) {
+                await handleKickFromTeam(serverUrl, teamId);
+            }
+
+            await removeUserFromTeam(serverUrl, teamId);
+            updateCanJoinTeams(serverUrl);
+
+            if (user.isGuest) {
+                updateUsersNoLongerVisible(serverUrl);
+            }
+        }
+    } catch (error) {
+        logDebug('cannot handle leave team websocket event', error);
+    }
+}
+
+export async function handleUpdateTeamEvent(serverUrl: string, msg: WebSocketMessage) {
+    const database = DatabaseManager.serverDatabases[serverUrl];
+    if (!database) {
+        return;
+    }
+
+    try {
+        const team: Team = JSON.parse(msg.data.team);
+        database.operator.handleTeam({
+            teams: [team],
+            prepareRecordsOnly: false,
+        });
+    } catch (err) {
+        // Do nothing
+    }
+}
+
+export async function handleUserAddedToTeamEvent(serverUrl: string, msg: WebSocketMessage) {
+    const {team_id: teamId} = msg.data;
+
+    // Ignore duplicated team join events sent by the server
+    if (EphemeralStore.isAddingToTeam(teamId)) {
+        return;
+    }
+    EphemeralStore.startAddingToTeam(teamId);
+
+    try {
+        setTeamLoading(serverUrl, true);
+        const {operator} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+        const {teams, memberships: teamMemberships} = await fetchMyTeam(serverUrl, teamId, true);
+
+        await fetchAndStoreJoinedTeamInfo(serverUrl, operator, teamId, teams, teamMemberships);
+    } catch (error) {
+        logDebug('could not handle user added to team websocket event');
+    }
+    setTeamLoading(serverUrl, false);
+    EphemeralStore.finishAddingToTeam(teamId);
+}
+
+const fetchAndStoreJoinedTeamInfo = async (serverUrl: string, operator: ServerDataOperator, teamId: string, teams?: Team[], teamMemberships?: TeamMembership[]) => {
+    const modelPromises: Array<Promise<Model[]>> = [];
+    if (teams?.length && teamMemberships?.length) {
+        const {channels, memberships, categories} = await fetchMyChannelsForTeam(serverUrl, teamId, false, 0, true);
+        modelPromises.push(prepareCategoriesAndCategoriesChannels(operator, categories || [], true));
+        modelPromises.push(...await prepareMyChannelsForTeam(operator, teamId, channels || [], memberships || []));
+
+        const {roles} = await fetchRoles(serverUrl, teamMemberships, memberships, undefined, true);
+        if (roles?.length) {
+            modelPromises.push(operator.handleRole({roles, prepareRecordsOnly: true}));
+        }
+    }
+
+    if (teams && teamMemberships) {
+        modelPromises.push(...prepareMyTeams(operator, teams, teamMemberships));
+    }
+
+    const models = await Promise.all(modelPromises);
+    await operator.batchRecords(models.flat(), 'fetchAndStoreJoinedTeamInfo');
+};

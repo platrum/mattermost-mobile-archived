@@ -11,12 +11,13 @@ import MessageAttachments from './message_attachments';
 import Opengraph from './opengraph';
 import YouTube from './youtube';
 
-import type {Post} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
+import type PostModel from '@typings/database/models/servers/post';
 
 type ContentProps = {
     isReplyPost: boolean;
-    post: Post;
+    layoutWidth?: number;
+    location: string;
+    post: PostModel;
     theme: Theme;
 }
 
@@ -28,9 +29,9 @@ const contentType: Record<string, string> = {
     youtube: 'youtube',
 };
 
-const Content = ({isReplyPost, post, theme}: ContentProps) => {
-    let type: string = post.metadata?.embeds?.[0]?.type;
-    if (!type && post.props?.app_bindings) {
+const Content = ({isReplyPost, layoutWidth, location, post, theme}: ContentProps) => {
+    let type: string | undefined = post.metadata?.embeds?.[0].type;
+    if (!type && post.props?.app_bindings?.length) {
         type = contentType.app_bindings;
     }
 
@@ -39,54 +40,65 @@ const Content = ({isReplyPost, post, theme}: ContentProps) => {
     }
 
     switch (contentType[type]) {
-    case contentType.image:
-        return (
-            <ImagePreview
-                isReplyPost={isReplyPost}
-                post={post}
-                theme={theme}
-            />
-        );
-    case contentType.opengraph:
-        if (isYoutubeLink(post.metadata.embeds[0].url)) {
+        case contentType.image:
             return (
-                <YouTube
+                <ImagePreview
                     isReplyPost={isReplyPost}
-                    post={post}
-                />
-            );
-        }
-
-        return (
-            <Opengraph
-                isReplyPost={isReplyPost}
-                post={post}
-                theme={theme}
-            />
-        );
-    case contentType.message_attachment:
-        if (post.props.attachments?.length) {
-            return (
-                <MessageAttachments
-                    attachments={post.props.attachments}
+                    layoutWidth={layoutWidth}
+                    location={location}
                     metadata={post.metadata}
                     postId={post.id}
                     theme={theme}
                 />
             );
-        }
-        break;
-    case contentType.app_bindings:
-        if (post.props.app_bindings?.length) {
+        case contentType.opengraph:
+            if (isYoutubeLink(post.metadata!.embeds![0].url)) {
+                return (
+                    <YouTube
+                        isReplyPost={isReplyPost}
+                        layoutWidth={layoutWidth}
+                        metadata={post.metadata}
+                    />
+                );
+            }
+
             return (
-                <EmbeddedBindings
-                    embeds={post.props.app_bindings}
+                <Opengraph
+                    isReplyPost={isReplyPost}
+                    layoutWidth={layoutWidth}
+                    location={location}
+                    metadata={post.metadata}
                     postId={post.id}
+                    removeLinkPreview={post.props?.remove_link_preview === 'true'}
                     theme={theme}
                 />
             );
-        }
-        break;
+        case contentType.message_attachment:
+            if (post.props.attachments?.length) {
+                return (
+                    <MessageAttachments
+                        attachments={post.props.attachments}
+                        channelId={post.channelId}
+                        layoutWidth={layoutWidth}
+                        location={location}
+                        metadata={post.metadata}
+                        postId={post.id}
+                        theme={theme}
+                    />
+                );
+            }
+            break;
+        case contentType.app_bindings:
+            if (post.props.app_bindings?.length) {
+                return (
+                    <EmbeddedBindings
+                        location={location}
+                        post={post}
+                        theme={theme}
+                    />
+                );
+            }
+            break;
     }
 
     return null;

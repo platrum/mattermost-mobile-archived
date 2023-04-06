@@ -6,48 +6,12 @@ import {StyleProp, View, ViewStyle} from 'react-native';
 
 import FormattedText from '@components/formatted_text';
 import {makeStyleSheetFromTheme} from '@utils/theme';
-
-import type {Theme} from '@mm-redux/types/theme';
+import {typography} from '@utils/typography';
 
 type NewMessagesLineProps = {
-    moreMessages: boolean;
     style?: StyleProp<ViewStyle>;
     theme: Theme;
     testID?: string;
-}
-
-function NewMessagesLine({moreMessages, style, testID, theme}: NewMessagesLineProps) {
-    const styles = getStyleFromTheme(theme);
-
-    let text = (
-        <FormattedText
-            id='posts_view.newMsg'
-            defaultMessage='New Messages'
-            style={styles.text}
-            testID={testID}
-        />
-    );
-
-    if (moreMessages) {
-        text = (
-            <FormattedText
-                id='mobile.posts_view.moreMsg'
-                defaultMessage='More New Messages Above'
-                style={styles.text}
-                testID={testID}
-            />
-        );
-    }
-
-    return (
-        <View style={[styles.container, style]}>
-            <View style={styles.line}/>
-            <View style={styles.textContainer}>
-                {text}
-            </View>
-            <View style={styles.line}/>
-        </View>
-    );
 }
 
 const getStyleFromTheme = makeStyleSheetFromTheme((theme: Theme) => {
@@ -56,9 +20,10 @@ const getStyleFromTheme = makeStyleSheetFromTheme((theme: Theme) => {
             alignItems: 'center',
             flexDirection: 'row',
             height: 28,
+            paddingHorizontal: 16,
         },
         textContainer: {
-            marginHorizontal: 15,
+            marginHorizontal: 8,
         },
         line: {
             flex: 1,
@@ -66,10 +31,30 @@ const getStyleFromTheme = makeStyleSheetFromTheme((theme: Theme) => {
             backgroundColor: theme.newMessageSeparator,
         },
         text: {
-            fontSize: 14,
             color: theme.newMessageSeparator,
+            marginHorizontal: 4,
+            ...typography('Body', 75, 'SemiBold'),
         },
     };
 });
+
+function NewMessagesLine({style, testID, theme}: NewMessagesLineProps) {
+    const styles = getStyleFromTheme(theme);
+
+    return (
+        <View style={[styles.container, style]}>
+            <View style={styles.line}/>
+            <View style={styles.textContainer}>
+                <FormattedText
+                    id='posts_view.newMsg'
+                    defaultMessage='New Messages'
+                    style={styles.text}
+                    testID={testID}
+                />
+            </View>
+            <View style={styles.line}/>
+        </View>
+    );
+}
 
 export default NewMessagesLine;

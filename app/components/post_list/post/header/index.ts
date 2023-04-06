@@ -1,49 +1,57 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {connect} from 'react-redux';
+import {withDatabase} from '@nozbe/watermelondb/DatabaseProvider';
+import withObservables from '@nozbe/with-observables';
+import {of as of$} from 'rxjs';
+import {map, switchMap} from 'rxjs/operators';
 
-import {Preferences} from '@mm-redux/constants';
-import {makeGetCommentCountForPost} from '@mm-redux/selectors/entities/posts';
-import {getBool} from '@mm-redux/selectors/entities/preferences';
-import {isTimezoneEnabled} from '@mm-redux/selectors/entities/timezone';
-import {getUser, getCurrentUser} from '@mm-redux/selectors/entities/users';
-import {getUserCurrentTimezone} from '@mm-redux/utils/timezone_utils';
-import {isCustomStatusEnabled} from '@selectors/custom_status';
-import {postUserDisplayName} from '@utils/post';
-import {isGuest} from '@utils/users';
+import {getDisplayNamePreferenceAsBool} from '@helpers/api/preference';
+import {observePost, observePostAuthor, queryPostReplies} from '@queries/servers/post';
+import {queryDisplayNamePreferences} from '@queries/servers/preference';
+import {observeConfigBooleanValue} from '@queries/servers/system';
+import {observeTeammateNameDisplay, observeUser} from '@queries/servers/user';
 
 import Header from './header';
 
-import type {Post} from '@mm-redux/types/posts';
-import type {GlobalState} from '@mm-redux/types/store';
+import type {WithDatabaseArgs} from '@typings/database/database';
+import type PostModel from '@typings/database/models/servers/post';
 
-type OwnProps = {
-    enablePostUsernameOverride: boolean;
-    location: string;
-    post: Post;
-    rootPostAuthor?: string;
-    teammateNameDisplay: string;
+type HeaderInputProps = {
+    differentThreadSequence: boolean;
+    post: PostModel;
 };
 
-function mapStateToProps() {
-    const getCommentCountForPost = makeGetCommentCountForPost();
-    return (state: GlobalState, ownProps: OwnProps) => {
-        const {post, enablePostUsernameOverride, teammateNameDisplay} = ownProps;
-        const currentUser = getCurrentUser(state);
-        const author = post.user_id ? getUser(state, post.user_id) : undefined;
-        const enableTimezone = isTimezoneEnabled(state);
+const withHeaderProps = withObservables(
+    ['post', 'differentThreadSequence'],
+    ({post, database, differentThreadSequence}: WithDatabaseArgs & HeaderInputProps) => {
+        const preferences = queryDisplayNamePreferences(database).
+            observeWithColumns(['value']);
+        const author = observePostAuthor(database, post);
+        const enablePostUsernameOverride = observeConfigBooleanValue(database, 'EnablePostUsernameOverride');
+        const isTimezoneEnabled = observeConfigBooleanValue(database, 'ExperimentalTimezone');
+        const isMilitaryTime = preferences.pipe(map((prefs) => getDisplayNamePreferenceAsBool(prefs, 'use_military_time')));
+        const teammateNameDisplay = observeTeammateNameDisplay(database);
+        const commentCount = queryPostReplies(database, post.rootId || post.id).observeCount();
+        const isCustomStatusEnabled = observeConfigBooleanValue(database, 'EnableCustomUserStatuses');
+        const rootPostAuthor = differentThreadSequence ? observePost(database, post.rootId).pipe(switchMap((root) => {
+            if (root) {
+                return observeUser(database, root.userId);
+            }
+
+            return of$(null);
+        })) : of$(null);
 
         return {
-            commentCount: getCommentCountForPost(state, post),
-            displayName: postUserDisplayName(post, author, teammateNameDisplay, enablePostUsernameOverride),
-            isBot: (author ? author.is_bot : false),
-            isGuest: isGuest(author),
-            isMilitaryTime: getBool(state, Preferences.CATEGORY_DISPLAY_SETTINGS, 'use_military_time'),
-            userTimezone: enableTimezone ? getUserCurrentTimezone(currentUser.timezone) : undefined,
-            isCustomStatusEnabled: isCustomStatusEnabled(state),
+            author,
+            commentCount,
+            enablePostUsernameOverride,
+            isCustomStatusEnabled,
+            isMilitaryTime,
+            isTimezoneEnabled,
+            rootPostAuthor,
+            teammateNameDisplay,
         };
-    };
-}
+    });
 
-export default connect(mapStateToProps)(Header);
+export default withDatabase(withHeaderProps(Header));

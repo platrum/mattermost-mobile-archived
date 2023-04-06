@@ -6,17 +6,16 @@ import React from 'react';
 import ButtonBinding from './button_binding';
 import BindingMenu from './menu_binding';
 
-import type {AppBinding} from '@mm-redux/types/apps';
-import type {Theme} from '@mm-redux/types/theme';
+import type PostModel from '@typings/database/models/servers/post';
 
 type Props = {
     bindings: AppBinding[];
-    postId: string;
+    post: PostModel;
     theme: Theme;
 }
 
-const EmbeddedSubBindings = ({bindings, postId, theme}: Props) => {
-    const content = [] as React.ReactNode[];
+const EmbeddedSubBindings = ({bindings, post, theme}: Props) => {
+    const content: React.ReactNode[] = [];
 
     bindings.forEach((binding) => {
         if (!binding.app_id || !(binding.submit || binding.form?.submit || binding.form?.source || binding.bindings?.length)) {
@@ -28,7 +27,7 @@ const EmbeddedSubBindings = ({bindings, postId, theme}: Props) => {
                 <BindingMenu
                     key={binding.location}
                     binding={binding}
-                    postId={postId}
+                    post={post}
                 />,
             );
             return;
@@ -38,7 +37,7 @@ const EmbeddedSubBindings = ({bindings, postId, theme}: Props) => {
             <ButtonBinding
                 key={binding.location}
                 binding={binding}
-                postId={postId}
+                post={post}
                 theme={theme}
             />,
         );

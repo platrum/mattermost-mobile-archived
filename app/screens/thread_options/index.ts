@@ -1,53 +1,27 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {connect} from 'react-redux';
-import {bindActionCreators, Dispatch} from 'redux';
+import {withDatabase} from '@nozbe/watermelondb/DatabaseProvider';
+import withObservables from '@nozbe/with-observables';
 
-import {showPermalink} from '@actions/views/permalink';
-import {
-    flagPost,
-    setUnreadPost,
-    unflagPost,
-} from '@mm-redux/actions/posts';
-import {setThreadFollow, updateThreadRead} from '@mm-redux/actions/threads';
-import {getCurrentUserId} from '@mm-redux/selectors/entities/common';
-import {getPost} from '@mm-redux/selectors/entities/posts';
-import {getMyPreferences, getTheme} from '@mm-redux/selectors/entities/preferences';
-import {getCurrentTeam, getCurrentTeamUrl} from '@mm-redux/selectors/entities/teams';
-import {getThread} from '@mm-redux/selectors/entities/threads';
-import {isPostFlagged} from '@mm-redux/utils/post_utils';
-import {getDimensions} from '@selectors/device';
+import {observePost, observePostSaved} from '@queries/servers/post';
+import {observeCurrentTeam} from '@queries/servers/team';
 
-import ThreadOptions, {OwnProps} from './thread_options';
+import ThreadOptions from './thread_options';
 
-import type {GlobalState} from '@mm-redux/types/store';
+import type {WithDatabaseArgs} from '@typings/database/database';
+import type ThreadModel from '@typings/database/models/servers/thread';
 
-export function mapStateToProps(state: GlobalState, ownProps: OwnProps) {
-    const myPreferences = getMyPreferences(state);
+type Props = WithDatabaseArgs & {
+    thread: ThreadModel;
+};
+
+const enhanced = withObservables(['thread'], ({database, thread}: Props) => {
     return {
-        ...getDimensions(state),
-        currentTeamName: getCurrentTeam(state)?.name,
-        currentTeamUrl: getCurrentTeamUrl(state),
-        currentUserId: getCurrentUserId(state),
-        isFlagged: isPostFlagged(ownProps.rootId, myPreferences),
-        post: getPost(state, ownProps.rootId),
-        theme: getTheme(state),
-        thread: getThread(state, ownProps.rootId),
+        isSaved: observePostSaved(database, thread.id),
+        post: observePost(database, thread.id),
+        team: observeCurrentTeam(database),
     };
-}
+});
 
-function mapDispatchToProps(dispatch: Dispatch) {
-    return {
-        actions: bindActionCreators({
-            flagPost,
-            setThreadFollow,
-            setUnreadPost,
-            showPermalink,
-            unflagPost,
-            updateThreadRead,
-        }, dispatch),
-    };
-}
-
-export default connect(mapStateToProps, mapDispatchToProps)(ThreadOptions);
+export default withDatabase(enhanced(ThreadOptions));

@@ -1,8 +1,9 @@
+#import <RCTAppDelegate.h>
 #import <UIKit/UIKit.h>
 #import "RNNotifications.h"
 
-@interface AppDelegate : UIResponder <UIApplicationDelegate>
+@interface AppDelegate : RCTAppDelegate
 
-@property (nonatomic, strong) UIWindow *window;
+@property(nonatomic,assign)BOOL allowRotation;
 
 @end

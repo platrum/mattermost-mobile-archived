@@ -1,37 +1,20 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {connect} from 'react-redux';
+import {withDatabase} from '@nozbe/watermelondb/DatabaseProvider';
+import withObservables from '@nozbe/with-observables';
 
-import {getChannel} from '@mm-redux/selectors/entities/channels';
-import {makeGetMentionKeysForPost} from '@mm-redux/selectors/entities/search';
+import {observeCurrentUser} from '@queries/servers/user';
 
 import Message from './message';
 
-import type {Post as PostType} from '@mm-redux/types/posts';
-import type {GlobalState} from '@mm-redux/types/store';
-import type {Theme} from '@mm-redux/types/theme';
+import type {WithDatabaseArgs} from '@typings/database/database';
 
-type OwnProps = {
-    post: PostType;
-    theme: Theme;
-}
-
-function mapSateToProps() {
-    const getMentionKeysForPost = makeGetMentionKeysForPost();
-    return (state: GlobalState, ownProps: OwnProps) => {
-        const {post} = ownProps;
-        const channel = getChannel(state, post.channel_id) || {};
-
-        let disableGroupHighlight = false;
-        if (post.id === post.pending_post_id) {
-            disableGroupHighlight = true;
-        }
-
-        return {
-            mentionKeys: getMentionKeysForPost(state, channel, disableGroupHighlight, post.props?.mentionHighlightDisabled),
-        };
+const withMessageInput = withObservables([], ({database}: WithDatabaseArgs) => {
+    const currentUser = observeCurrentUser(database);
+    return {
+        currentUser,
     };
-}
+});
 
-export default connect(mapSateToProps)(Message);
+export default withDatabase(withMessageInput(Message));

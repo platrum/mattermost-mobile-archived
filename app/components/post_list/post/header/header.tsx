@@ -4,35 +4,43 @@
 import React from 'react';
 import {View} from 'react-native';
 
-import CustomStatusEmoji from '@components/custom_status/custom_status_emoji';
 import FormattedTime from '@components/formatted_time';
-import {CHANNEL, THREAD} from '@constants/screen';
-import {Posts} from '@mm-redux/constants';
-import {fromAutoResponder, isFromWebhook, isPostEphemeral, isPostPendingOrFailed, isSystemMessage} from '@mm-redux/utils/post_utils';
+import PostPriorityLabel from '@components/post_priority/post_priority_label';
+import {CHANNEL, THREAD} from '@constants/screens';
+import {useTheme} from '@context/theme';
+import {postUserDisplayName} from '@utils/post';
 import {makeStyleSheetFromTheme} from '@utils/theme';
+import {typography} from '@utils/typography';
+import {displayUsername, getUserCustomStatus, getUserTimezone, isCustomStatusExpired} from '@utils/user';
 
 import HeaderCommentedOn from './commented_on';
 import HeaderDisplayName from './display_name';
 import HeaderReply from './reply';
 import HeaderTag from './tag';
 
-import type {Post} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
+import type PostModel from '@typings/database/models/servers/post';
+import type UserModel from '@typings/database/models/servers/user';
 
 type HeaderProps = {
+    author?: UserModel;
     commentCount: number;
-    collapsedThreadsEnabled: boolean;
-    displayName?: string;
-    isBot: boolean;
-    isGuest: boolean;
-    isMilitaryTime: boolean;
-    location: string;
-    post: Post;
-    rootPostAuthor?: string;
-    shouldRenderReplyButton?: boolean;
-    theme: Theme;
-    userTimezone?: string | null;
+    currentUser: UserModel;
+    enablePostUsernameOverride: boolean;
+    isAutoResponse: boolean;
+    isCRTEnabled?: boolean;
     isCustomStatusEnabled: boolean;
+    isEphemeral: boolean;
+    isMilitaryTime: boolean;
+    isPendingOrFailed: boolean;
+    isSystemPost: boolean;
+    isTimezoneEnabled: boolean;
+    isWebHook: boolean;
+    location: string;
+    post: PostModel;
+    rootPostAuthor?: UserModel;
+    showPostPriority: boolean;
+    shouldRenderReplyButton?: boolean;
+    teammateNameDisplay: string;
 }
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
@@ -50,89 +58,94 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
         },
         time: {
             color: theme.centerChannelColor,
-            fontSize: 12,
             marginTop: 5,
             opacity: 0.5,
-            flex: 1,
+            ...typography('Body', 75, 'Regular'),
         },
-        customStatusEmoji: {
-            color: theme.centerChannelColor,
-            marginRight: 4,
-            marginTop: 1,
+        postPriority: {
+            alignSelf: 'center',
+            marginLeft: 6,
         },
     };
 });
 
-const Header = ({
-    commentCount, collapsedThreadsEnabled, displayName, location, isBot, isGuest,
-    isMilitaryTime, post, rootPostAuthor, shouldRenderReplyButton, theme, userTimezone, isCustomStatusEnabled,
-}: HeaderProps) => {
+const Header = (props: HeaderProps) => {
+    const {
+        author, commentCount = 0, currentUser, enablePostUsernameOverride, isAutoResponse, isCRTEnabled, isCustomStatusEnabled,
+        isEphemeral, isMilitaryTime, isPendingOrFailed, isSystemPost, isTimezoneEnabled, isWebHook,
+        location, post, rootPostAuthor, showPostPriority, shouldRenderReplyButton, teammateNameDisplay,
+    } = props;
+    const theme = useTheme();
     const style = getStyleSheet(theme);
-    const pendingPostStyle = isPostPendingOrFailed(post) ? style.pendingPost : undefined;
-    const isAutoResponse = fromAutoResponder(post);
-    const isWebHook = isFromWebhook(post);
-    const isSystemPost = isSystemMessage(post);
-    const isReplyPost = Boolean(post.root_id && (!isPostEphemeral(post) || post.state === Posts.POST_DELETED));
-    const showReply = !collapsedThreadsEnabled && !isReplyPost && (location !== THREAD) && (shouldRenderReplyButton || (!rootPostAuthor && commentCount > 0));
-    const showCustomStatusEmoji = Boolean(isCustomStatusEnabled && displayName && !(isSystemPost || isBot || isAutoResponse || isWebHook));
+    const pendingPostStyle = isPendingOrFailed ? style.pendingPost : undefined;
+    const isReplyPost = Boolean(post.rootId && !isEphemeral);
+    const showReply = !isReplyPost && (location !== THREAD) && (shouldRenderReplyButton && (!rootPostAuthor && commentCount > 0));
+    const displayName = postUserDisplayName(post, author, teammateNameDisplay, enablePostUsernameOverride);
+    const rootAuthorDisplayName = rootPostAuthor ? displayUsername(rootPostAuthor, currentUser.locale, teammateNameDisplay, true) : undefined;
+    const customStatus = getUserCustomStatus(author);
+    const showCustomStatusEmoji = Boolean(
+        isCustomStatusEnabled && displayName && customStatus &&
+        !(isSystemPost || author?.isBot || isAutoResponse || isWebHook),
+    ) && !isCustomStatusExpired(author) && Boolean(customStatus?.emoji);
 
     return (
         <>
             <View style={[style.container, pendingPostStyle]}>
                 <View style={style.wrapper}>
                     <HeaderDisplayName
+                        channelId={post.channelId}
                         commentCount={commentCount}
                         displayName={displayName}
-                        isAutomation={isBot || isAutoResponse || isWebHook}
-                        rootPostAuthor={rootPostAuthor}
+                        location={location}
+                        rootPostAuthor={rootAuthorDisplayName}
                         shouldRenderReplyButton={shouldRenderReplyButton}
                         theme={theme}
-                        userId={post.user_id}
+                        userIconOverride={post.props?.override_icon_url}
+                        userId={post.userId}
+                        usernameOverride={post.props?.override_username}
+                        showCustomStatusEmoji={showCustomStatusEmoji}
+                        customStatus={customStatus!}
                     />
-                    {showCustomStatusEmoji && (
-                        <CustomStatusEmoji
-                            userID={post.user_id}
-                            style={style.customStatusEmoji}
-                            testID='post_header'
-                        />
-                    )}
                     {(!isSystemPost || isAutoResponse) &&
                     <HeaderTag
                         isAutoResponder={isAutoResponse}
-                        isAutomation={isWebHook || isBot}
-                        isGuest={isGuest}
-                        theme={theme}
+                        isAutomation={isWebHook || author?.isBot}
+                        isGuest={author?.isGuest}
                     />
                     }
                     <FormattedTime
-                        timezone={userTimezone || ''}
+                        timezone={isTimezoneEnabled ? getUserTimezone(currentUser) : ''}
                         isMilitaryTime={isMilitaryTime}
-                        value={post.create_at}
+                        value={post.createAt}
                         style={style.time}
                         testID='post_header.date_time'
                     />
-                    {showReply &&
-                    <HeaderReply
-                        commentCount={commentCount}
-                        location={location}
-                        post={post}
-                        theme={theme}
-                    />
+                    {showPostPriority && post.metadata?.priority?.priority && (
+                        <View style={style.postPriority}>
+                            <PostPriorityLabel
+                                label={post.metadata.priority.priority}
+                            />
+                        </View>
+                    )}
+                    {!isCRTEnabled && showReply && commentCount > 0 &&
+                        <HeaderReply
+                            commentCount={commentCount}
+                            location={location}
+                            post={post}
+                            theme={theme}
+                        />
                     }
                 </View>
             </View>
-            {Boolean(rootPostAuthor) && location === CHANNEL &&
+            {Boolean(rootAuthorDisplayName) && location === CHANNEL &&
             <HeaderCommentedOn
-                name={rootPostAuthor!}
+                locale={currentUser.locale}
+                name={rootAuthorDisplayName!}
                 theme={theme}
             />
             }
         </>
     );
-};
-
-Header.defaultProps = {
-    commentCount: 0,
 };
 
 export default Header;

@@ -2,20 +2,22 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useRef, useState} from 'react';
-import {View} from 'react-native';
+import {TouchableWithoutFeedback, View} from 'react-native';
+import Animated from 'react-native-reanimated';
 
-import FileIcon from '@components/post_list/post/body/files/file_icon';
+import FileIcon from '@components/files/file_icon';
 import ProgressiveImage from '@components/progressive_image';
-import TouchableWithFeedback from '@components/touchable_with_feedback';
-import {usePermanentSidebar, useSplitView} from '@hooks/permanent_sidebar';
-import {generateId} from '@utils/file';
-import {openGallerWithMockFile} from '@utils/gallery';
+import {GalleryInit} from '@context/gallery';
+import {useIsTablet} from '@hooks/device';
+import {useGalleryItem} from '@hooks/gallery';
+import {lookupMimeType} from '@utils/file';
+import {openGalleryAtIndex} from '@utils/gallery';
+import {generateId} from '@utils/general';
 import {isGifTooLarge, calculateDimensions, getViewPortWidth} from '@utils/images';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
-import {isValidUrl} from '@utils/url';
+import {extractFilenameFromUrl, isValidUrl} from '@utils/url';
 
-import type {PostImage} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
+import type {GalleryItemType} from '@typings/screens/gallery';
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     return {
@@ -44,26 +46,44 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
 export type Props = {
     imageMetadata: PostImage;
     imageUrl: string;
+    layoutWidth?: number;
+    location: string;
     postId: string;
     theme: Theme;
 }
 
-const AttachmentImage = ({imageUrl, imageMetadata, postId, theme}: Props) => {
+const AttachmentImage = ({imageUrl, imageMetadata, layoutWidth, location, postId, theme}: Props) => {
+    const galleryIdentifier = `${postId}-AttachmentImage-${location}`;
     const [error, setError] = useState(false);
-    const fileId = useRef(generateId()).current;
-    const permanentSidebar = usePermanentSidebar();
-    const splitView = useSplitView();
-    const hasPemanentSidebar = !splitView && permanentSidebar;
-    const {height, width} = calculateDimensions(imageMetadata.height, imageMetadata.width, getViewPortWidth(false, hasPemanentSidebar));
+    const fileId = useRef(generateId('uid')).current;
+    const isTablet = useIsTablet();
+    const {height, width} = calculateDimensions(imageMetadata.height, imageMetadata.width, layoutWidth || getViewPortWidth(false, isTablet));
     const style = getStyleSheet(theme);
 
     const onError = useCallback(() => {
         setError(true);
     }, []);
 
-    const onPress = useCallback(() => {
-        openGallerWithMockFile(imageUrl, postId, imageMetadata.height, imageMetadata.width);
-    }, [imageUrl]);
+    const onPress = () => {
+        const item: GalleryItemType = {
+            id: fileId,
+            postId,
+            uri: imageUrl,
+            width: imageMetadata.width,
+            height: imageMetadata.height,
+            name: extractFilenameFromUrl(imageUrl) || 'attachmentImage.png',
+            mime_type: lookupMimeType(imageUrl) || 'image/png',
+            type: 'image',
+            lastPictureUpdate: 0,
+        };
+        openGalleryAtIndex(galleryIdentifier, 0, [item]);
+    };
+
+    const {ref, onGestureEvent, styles} = useGalleryItem(
+        galleryIdentifier,
+        0,
+        onPress,
+    );
 
     if (error || !isValidUrl(imageUrl) || isGifTooLarge(imageMetadata)) {
         return (
@@ -71,7 +91,6 @@ const AttachmentImage = ({imageUrl, imageMetadata, postId, theme}: Props) => {
                 <View style={[style.image, {width, height}]}>
                     <FileIcon
                         failed={true}
-                        theme={theme}
                     />
                 </View>
             </View>
@@ -79,24 +98,23 @@ const AttachmentImage = ({imageUrl, imageMetadata, postId, theme}: Props) => {
     }
 
     return (
-        <TouchableWithFeedback
-            onPress={onPress}
-            style={[style.container, {width}]}
-            type={'none'}
-        >
-            <View
-                style={[style.imageContainer, {width, height}]}
-            >
-                <ProgressiveImage
-                    id={fileId}
-                    imageStyle={style.attachmentMargin}
-                    imageUri={imageUrl}
-                    onError={onError}
-                    resizeMode='contain'
-                    style={{height, width}}
-                />
-            </View>
-        </TouchableWithFeedback>
+        <GalleryInit galleryIdentifier={galleryIdentifier}>
+            <Animated.View style={[styles, style.container, {width}]}>
+                <TouchableWithoutFeedback onPress={onGestureEvent}>
+                    <Animated.View testID={`attachmentImage-${fileId}`}>
+                        <ProgressiveImage
+                            forwardRef={ref}
+                            id={fileId}
+                            imageStyle={style.attachmentMargin}
+                            imageUri={imageUrl}
+                            onError={onError}
+                            resizeMode='contain'
+                            style={{height, width}}
+                        />
+                    </Animated.View>
+                </TouchableWithoutFeedback>
+            </Animated.View>
+        </GalleryInit>
     );
 };
 

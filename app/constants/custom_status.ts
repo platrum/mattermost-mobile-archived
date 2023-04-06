@@ -1,8 +1,17 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {CustomStatusDuration} from '@mm-redux/types/users';
-import {t} from '@utils/i18n';
+import {t} from '@i18n';
+
+export enum CustomStatusDurationEnum {
+    DONT_CLEAR = '',
+    THIRTY_MINUTES = 'thirty_minutes',
+    ONE_HOUR = 'one_hour',
+    FOUR_HOURS = 'four_hours',
+    TODAY = 'today',
+    THIS_WEEK = 'this_week',
+    DATE_AND_TIME = 'date_and_time',
+}
 
 const {
     DONT_CLEAR,
@@ -12,9 +21,9 @@ const {
     TODAY,
     THIS_WEEK,
     DATE_AND_TIME,
-} = CustomStatusDuration;
+} = CustomStatusDurationEnum;
 
-export const durationValues = {
+export const CST: {[key in CustomStatusDuration]: {id: string; defaultMessage: string}} = {
     [DONT_CLEAR]: {
         id: t('custom_status.expiry_dropdown.dont_clear'),
         defaultMessage: "Don't clear",
@@ -44,5 +53,9 @@ export const durationValues = {
         defaultMessage: 'Date and Time',
     },
 };
+
 export const CUSTOM_STATUS_TEXT_CHARACTER_LIMIT = 100;
-export const SET_CUSTOM_STATUS = 'set_custom_status';
+
+export const SET_CUSTOM_STATUS_FAILURE = 'set_custom_status_failure';
+
+export const CUSTOM_STATUS_TIME_PICKER_INTERVALS_IN_MINUTES = 30;

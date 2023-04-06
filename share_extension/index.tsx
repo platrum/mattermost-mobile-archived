@@ -1,54 +1,131 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useCallback, useEffect, useState} from 'react';
+import {NavigationContainer} from '@react-navigation/native';
+import {createStackNavigator} from '@react-navigation/stack';
+import React, {useEffect, useMemo, useState} from 'react';
 import {IntlProvider} from 'react-intl';
-import {Provider} from 'react-redux';
+import {Appearance, BackHandler, NativeModules} from 'react-native';
 
-import {getTranslations} from '@i18n';
-import {General} from '@mm-redux/constants';
-import {getCurrentLocale} from '@selectors/i18n';
-import configureStore from '@store';
-import getStorage from '@store/mmkv_adapter';
-import Store from '@store/store';
-import {waitForHydration} from '@store/utils';
+import {getDefaultThemeByAppearance} from '@context/theme';
+import {DEFAULT_LOCALE, getTranslations} from '@i18n';
+import {initialize} from '@init/app';
+import {extractStartLink, isValidUrl} from '@utils/url';
 
-import Extension from './screens/extension';
+import ChannelsScreen from './screens/channels';
+import ServersScreen from './screens/servers';
+import ShareScreen from './screens/share';
+
+const ShareModule: NativeShareExtension = NativeModules.MattermostShare;
+
+const Stack = createStackNavigator();
+
+const closeExtension = (data: ShareExtensionDataToSend | null = null) => {
+    ShareModule.close(data);
+};
 
 const ShareExtension = () => {
-    const [init, setInit] = useState(false);
-    const hydrate = useCallback((mmkvStore?: any) => {
-        if (mmkvStore) {
-            configureStore(mmkvStore);
+    const [data, setData] = useState<SharedItem[]>();
+    const [theme, setTheme] = useState<Theme>(getDefaultThemeByAppearance());
+
+    const defaultNavigationOptions = useMemo(() => ({
+        headerStyle: {
+            backgroundColor: theme.sidebarHeaderBg,
+        },
+        headerTitleStyle: {
+            marginHorizontal: 0,
+            left: 0,
+            color: theme.sidebarHeaderTextColor,
+        },
+        headerBackTitleStyle: {
+            color: theme.sidebarHeaderTextColor,
+            margin: 0,
+        },
+        headerTintColor: theme.sidebarHeaderTextColor,
+        headerTopInsetEnabled: false,
+        cardStyle: {backgroundColor: theme.centerChannelBg},
+    }), [theme]);
+
+    const {text: message, link: linkPreviewUrl} = useMemo(() => {
+        let text = data?.filter((i) => i.isString)[0]?.value;
+        let link;
+        if (text) {
+            const first = extractStartLink(text);
+            if (first && isValidUrl(first)) {
+                link = first;
+                text = text.replace(first, '');
+            }
         }
 
-        waitForHydration(Store.redux, async () => {
-            setInit(true);
-        });
-    }, []);
+        return {text, link};
+    }, [data]);
+
+    const files = useMemo(() => {
+        return data?.filter((i) => !i.isString) || [];
+    }, [data]);
 
     useEffect(() => {
-        if (Store.redux) {
-            hydrate();
-        } else {
-            getStorage().then(hydrate);
-        }
+        initialize().finally(async () => {
+            const items = await ShareModule.getSharedData();
+            setData(items);
+        });
+
+        const backListener = BackHandler.addEventListener('hardwareBackPress', () => {
+            const scene = ShareModule.getCurrentActivityName();
+            if (scene === 'ShareActivity') {
+                closeExtension();
+                return true;
+            }
+            return false;
+        });
+
+        const appearanceListener = Appearance.addChangeListener(() => {
+            setTheme(getDefaultThemeByAppearance());
+        });
+
+        return () => {
+            backListener.remove();
+            appearanceListener.remove();
+        };
     }, []);
 
-    if (!init) {
+    if (!data) {
         return null;
     }
 
-    const locale = getCurrentLocale(Store.redux!.getState()) || General.DEFAULT_LOCALE;
     return (
-        <Provider store={Store.redux!}>
-            <IntlProvider
-                locale={locale}
-                messages={getTranslations(locale)}
-            >
-                <Extension/>
-            </IntlProvider>
-        </Provider>
+        <IntlProvider
+            locale={DEFAULT_LOCALE}
+            messages={getTranslations(DEFAULT_LOCALE)}
+        >
+            <NavigationContainer>
+                <Stack.Navigator
+                    initialRouteName='Share'
+                    screenOptions={defaultNavigationOptions}
+                >
+                    <Stack.Screen name='Share'>
+                        {() => (
+                            <ShareScreen
+                                files={files}
+                                linkPreviewUrl={linkPreviewUrl}
+                                message={message}
+                                theme={theme}
+                            />
+                        )}
+                    </Stack.Screen>
+                    <Stack.Screen name='Servers'>
+                        {() => (
+                            <ServersScreen theme={theme}/>
+                        )}
+                    </Stack.Screen>
+                    <Stack.Screen name='Channels'>
+                        {() => (
+                            <ChannelsScreen theme={theme}/>
+                        )}
+                    </Stack.Screen>
+                </Stack.Navigator>
+            </NavigationContainer>
+        </IntlProvider>
     );
 };
 
