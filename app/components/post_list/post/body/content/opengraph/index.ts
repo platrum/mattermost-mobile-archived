@@ -1,53 +1,35 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {connect} from 'react-redux';
+import {withDatabase, withObservables} from '@nozbe/watermelondb/react';
+import {of as of$, combineLatest} from 'rxjs';
 
-import {Preferences} from '@mm-redux/constants';
-import {getConfig} from '@mm-redux/selectors/entities/general';
-import {getOpenGraphMetadataForUrl as selectOpenGraphMetadataForUrl} from '@mm-redux/selectors/entities/posts';
-import {getBool} from '@mm-redux/selectors/entities/preferences';
+import {Preferences} from '@constants';
+import {getDisplayNamePreferenceAsBool} from '@helpers/api/preference';
+import {queryDisplayNamePreferences} from '@queries/servers/preference';
+import {observeConfigBooleanValue} from '@queries/servers/system';
 
 import Opengraph from './opengraph';
 
-import type {Post, PostMetadata} from '@mm-redux/types/posts';
-import type {GlobalState} from '@mm-redux/types/store';
-import type {Theme} from '@mm-redux/types/theme';
+import type {WithDatabaseArgs} from '@typings/database/database';
 
-type OwnProps = {
-    isReplyPost: boolean;
-    post: Post;
-    theme: Theme;
-}
+const enhance = withObservables(
+    ['removeLinkPreview'],
+    ({database, removeLinkPreview}: WithDatabaseArgs & {removeLinkPreview: boolean}) => {
+        if (removeLinkPreview) {
+            return {showLinkPreviews: of$(false)};
+        }
 
-function selectOpenGraphData(url: string, metadata?: PostMetadata) {
-    if (!metadata || !metadata.embeds) {
-        return undefined;
-    }
+        const linkPreviewsConfig = observeConfigBooleanValue(database, 'EnableLinkPreviews');
+        const linkPreviewPreference = queryDisplayNamePreferences(database, Preferences.LINK_PREVIEW_DISPLAY).
+            observeWithColumns(['value']);
+        const showLinkPreviews = combineLatest([linkPreviewsConfig, linkPreviewPreference], (cfg, pref) => {
+            const previewsEnabled = getDisplayNamePreferenceAsBool(pref, Preferences.LINK_PREVIEW_DISPLAY, true);
+            return of$(previewsEnabled && cfg);
+        });
 
-    return metadata.embeds.find((embed) => {
-        return embed.type === 'opengraph' && embed.url === url ? embed.data : undefined;
-    });
-}
+        return {showLinkPreviews};
+    },
+);
 
-function mapStateToProps(state: GlobalState, ownProps: OwnProps) {
-    const {post} = ownProps;
-    const config = getConfig(state);
-    const link = post.metadata?.embeds?.[0]?.url;
-    const previewsEnabled = getBool(state, Preferences.CATEGORY_DISPLAY_SETTINGS, Preferences.LINK_PREVIEW_DISPLAY, true);
-
-    const removeLinkPreview = post.props?.remove_link_preview === 'true';
-
-    let openGraphData: Record<string, any> | undefined = selectOpenGraphMetadataForUrl(state, post.id, link);
-    if (!openGraphData) {
-        const data = selectOpenGraphData(link, post.metadata);
-        openGraphData = data?.data;
-    }
-
-    return {
-        openGraphData,
-        showLinkPreviews: previewsEnabled && config.EnableLinkPreviews === 'true' && !removeLinkPreview,
-    };
-}
-
-export default connect(mapStateToProps)(Opengraph);
+export default withDatabase(enhance(Opengraph));

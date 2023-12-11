@@ -2,7 +2,7 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useState} from 'react';
-import {LayoutChangeEvent, useWindowDimensions, ScrollView, View} from 'react-native';
+import {type LayoutChangeEvent, useWindowDimensions, ScrollView, View} from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import Markdown from '@components/markdown';
@@ -11,9 +11,9 @@ import {useShowMoreAnimatedStyle} from '@hooks/show_more';
 import {getMarkdownBlockStyles, getMarkdownTextStyles} from '@utils/markdown';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 
-import type {Theme} from '@mm-redux/types/theme';
-
 type Props = {
+    channelId: string;
+    location: string;
     theme: Theme;
     value: string;
 }
@@ -28,7 +28,7 @@ const getStyles = makeStyleSheetFromTheme((theme: Theme) => ({
     },
 }));
 
-const EmbedText = ({theme, value}: Props) => {
+const EmbedText = ({channelId, location, theme, value}: Props) => {
     const [open, setOpen] = useState(false);
     const [height, setHeight] = useState<number|undefined>();
     const dimensions = useWindowDimensions();
@@ -53,9 +53,12 @@ const EmbedText = ({theme, value}: Props) => {
                     <View onLayout={onLayout}>
                         <Markdown
                             baseTextStyle={style.message}
+                            channelId={channelId}
+                            location={location}
                             textStyles={textStyles}
                             blockStyles={blockStyles}
                             disableGallery={true}
+                            theme={theme}
                             value={value}
                         />
                     </View>

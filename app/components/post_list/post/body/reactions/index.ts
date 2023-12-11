@@ -1,77 +1,49 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {connect} from 'react-redux';
+import {withDatabase, withObservables} from '@nozbe/watermelondb/react';
+import {combineLatest, of as of$} from 'rxjs';
+import {map, switchMap} from 'rxjs/operators';
 
-import {addReaction} from '@actions/views/emoji';
-import {MAX_ALLOWED_REACTIONS} from '@constants/emoji';
-import {removeReaction} from '@mm-redux/actions/posts';
-import Permissions from '@mm-redux/constants/permissions';
-import {getChannel, isChannelReadOnlyById} from '@mm-redux/selectors/entities/channels';
-import {makeGetReactionsForPost} from '@mm-redux/selectors/entities/posts';
-import {haveIChannelPermission} from '@mm-redux/selectors/entities/roles';
-import {getCurrentUserId} from '@mm-redux/selectors/entities/users';
-import {selectEmojisCountFromReactions} from '@selectors/emojis';
+import {General, Permissions} from '@constants';
+import {observeChannel} from '@queries/servers/channel';
+import {observeReactionsForPost} from '@queries/servers/reaction';
+import {observePermissionForPost} from '@queries/servers/role';
+import {observeConfigBooleanValue, observeCurrentUserId} from '@queries/servers/system';
+import {observeUser} from '@queries/servers/user';
+import {isSystemAdmin} from '@utils/user';
 
 import Reactions from './reactions';
 
-import type {Post} from '@mm-redux/types/posts';
-import type{GlobalState} from '@mm-redux/types/store';
-import type {Theme} from '@mm-redux/types/theme';
+import type {WithDatabaseArgs} from '@typings/database/database';
+import type PostModel from '@typings/database/models/servers/post';
 
-type OwnProps = {
-    post: Post;
-    theme: Theme;
-};
-
-function mapStateToProps() {
-    const getReactionsForPostSelector = makeGetReactionsForPost();
-    return (state: GlobalState, ownProps: OwnProps) => {
-        const {post} = ownProps;
-        const channel = getChannel(state, post.channel_id);
-        const channelIsReadOnly = isChannelReadOnlyById(state, channel?.id);
-        const currentUserId = getCurrentUserId(state);
-        const reactions = getReactionsForPostSelector(state, post.id);
-
-        let canAddReaction = true;
-        let canRemoveReaction = true;
-        let canAddMoreReactions = true;
-        if (channel.delete_at !== 0 || channelIsReadOnly) {
-            canAddReaction = false;
-            canRemoveReaction = false;
-            canAddMoreReactions = false;
-        }
-
-        canAddReaction = haveIChannelPermission(state, {
-            team: channel?.team_id,
-            channel: channel?.id,
-            permission: Permissions.ADD_REACTION,
-            default: true,
-        });
-
-        canAddMoreReactions = selectEmojisCountFromReactions(reactions) < MAX_ALLOWED_REACTIONS;
-
-        canRemoveReaction = haveIChannelPermission(state, {
-            team: channel?.team_id,
-            channel: channel?.id,
-            permission: Permissions.REMOVE_REACTION,
-            default: true,
-        });
-
-        return {
-            currentUserId,
-            reactions,
-            canAddReaction,
-            canAddMoreReactions,
-            canRemoveReaction,
-            postId: post.id,
-        };
-    };
+type WithReactionsInput = WithDatabaseArgs & {
+    post: PostModel;
 }
 
-const mapDispatchToProps = {
-    addReaction,
-    removeReaction,
-};
+const withReactions = withObservables(['post'], ({database, post}: WithReactionsInput) => {
+    const currentUserId = observeCurrentUserId(database);
+    const currentUser = currentUserId.pipe(
+        switchMap((id) => observeUser(database, id)),
+    );
+    const channel = observeChannel(database, post.channelId);
+    const experimentalTownSquareIsReadOnly = observeConfigBooleanValue(database, 'ExperimentalTownSquareIsReadOnly');
+    const disabled = combineLatest([currentUser, channel, experimentalTownSquareIsReadOnly]).pipe(
+        map(([u, c, readOnly]) => ((c && c.deleteAt > 0) || (c?.name === General.DEFAULT_CHANNEL && !isSystemAdmin(u?.roles || '') && readOnly))),
+    );
 
-export default connect(mapStateToProps, mapDispatchToProps)(Reactions);
+    const canAddReaction = currentUser.pipe(switchMap((u) => observePermissionForPost(database, post, u, Permissions.ADD_REACTION, true)));
+    const canRemoveReaction = currentUser.pipe(switchMap((u) => observePermissionForPost(database, post, u, Permissions.REMOVE_REACTION, true)));
+
+    return {
+        canAddReaction,
+        canRemoveReaction,
+        currentUserId,
+        disabled,
+        postId: of$(post.id),
+        reactions: observeReactionsForPost(database, post.id),
+    };
+});
+
+export default withDatabase(withReactions(Reactions));

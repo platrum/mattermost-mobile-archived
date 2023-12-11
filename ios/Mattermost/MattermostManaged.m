@@ -7,12 +7,10 @@
 //
 
 #import "MattermostManaged.h"
-#import <LocalAuthentication/LocalAuthentication.h>
-#import <UploadAttachments/MMMConstants.h>
+#import "CreateThumbnail.h"
+#import "Mattermost-Swift.h"
 
-@implementation MattermostManaged {
-  bool hasListeners;
-}
+@implementation MattermostManaged
 
 RCT_EXPORT_MODULE();
 
@@ -21,169 +19,130 @@ RCT_EXPORT_MODULE();
   return YES;
 }
 
-- (void)startObserving {
-  hasListeners = YES;
-}
-
-- (void)stopObserving {
-  hasListeners = NO;
-}
-
-- (BOOL)hasSafeAreaInsets {
-  UIView *rootView = nil;
-
-  UIApplication *sharedApplication = RCTSharedApplication();
-  if (sharedApplication) {
-    UIWindow *window = RCTSharedApplication().keyWindow;
-    if (window) {
-      UIViewController *rootViewController = window.rootViewController;
-      if (rootViewController) {
-        rootView = rootViewController.view;
-      }
-    }
-  }
-
-  UIEdgeInsets safeAreaInsets = [self safeAreaInsetsForView:rootView];
-  return safeAreaInsets.bottom > 0;
-}
-
-- (UIEdgeInsets)safeAreaInsetsForView:(UIView *)view {
-#if __IPHONE_OS_VERSION_MAX_ALLOWED >= 110000
-  if (@available(iOS 11.0, *)) {
-    if (view) {
-      return view.safeAreaInsets;
-    }
-  }
-#endif
-
-  UIEdgeInsets safeAreaInsets = UIEdgeInsetsMake(0, 0, 0, 0);
-
-  if (view) {
-    return safeAreaInsets;
-  }
-
-  return safeAreaInsets;
-}
-
 -(NSString *)appGroupId {
     NSBundle *bundle = [NSBundle mainBundle];
     NSString *appGroupId = [bundle objectForInfoDictionaryKey:@"AppGroupIdentifier"];
     return appGroupId;
 }
 
+
+-(NSDictionary * ) appGroupSharedDirectory {
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  NSURL *sharedDirectory = [fileManager containerURLForSecurityApplicationGroupIdentifier: [self appGroupId]];
+  NSURL * databasePath = [sharedDirectory URLByAppendingPathComponent:@"databases"];
+
+  [fileManager createDirectoryAtPath:[databasePath path]
+                                  withIntermediateDirectories:true
+                                  attributes:nil
+                                  error:nil
+   ];
+   return  @{
+             @"sharedDirectory": [sharedDirectory path ],
+             @"databasePath" : [databasePath path]
+   };
+}
+
+
+
 - (NSDictionary *)constantsToExport {
   return @{
-           @"hasSafeAreaInsets": @([self hasSafeAreaInsets]),
-           @"appGroupIdentifier": [self appGroupId]
+           @"appGroupIdentifier": [self appGroupId],
+           @"appGroupSharedDirectory" : [self appGroupSharedDirectory]
            };
 }
 
-- (void)dealloc
-{
-  [[NSNotificationCenter defaultCenter] removeObserver:self];
-  [[NSNotificationCenter defaultCenter] removeObserver:NSUserDefaultsDidChangeNotification];
-}
 
-- (NSArray<NSString *> *)supportedEvents
-{
-  return @[@"managedConfigDidChange"];
-}
+RCT_EXPORT_METHOD(deleteDatabaseDirectory: (NSString *)databaseName  shouldRemoveDirectory: (BOOL) shouldRemoveDirectory callback: (RCTResponseSenderBlock)callback){
+  @try {
+    NSDictionary *appGroupDir = [self appGroupSharedDirectory];
+    NSString *databaseDir;
 
-- (instancetype)init {
-  self = [super init];
-  if (self) {
-    _sharedUserDefaults = [[NSUserDefaults alloc] initWithSuiteName:[self appGroupId]];
-
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(managedConfigDidChange:) name:@"managedConfigDidChange" object:nil];
-    [[NSNotificationCenter defaultCenter] addObserverForName:NSUserDefaultsDidChangeNotification
-                                                      object:nil
-                                                       queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
-                                                         [self remoteConfigChanged];
-                                                       }];
-  }
-  return self;
-}
-
-+ (void)sendConfigChangedEvent {
-  [[NSNotificationCenter defaultCenter] postNotificationName:@"managedConfigDidChange"
-                                                      object:self
-                                                    userInfo:nil];
-}
-
-// The Managed app configuration dictionary pushed down from an MDM server are stored in this key.
-static NSString * const configurationKey = @"com.apple.configuration.managed";
-
-// The dictionary that is sent back to the MDM server as feedback must be stored in this key.
-static NSString * const feedbackKey = @"com.apple.feedback.managed";
-
-
-- (void)managedConfigDidChange:(NSNotification *)notification
-{
-  NSDictionary *response = [[NSUserDefaults standardUserDefaults] dictionaryForKey:configurationKey];
-  if (hasListeners) {
-    @try {
-      [self sendEventWithName:@"managedConfigDidChange" body:response];
-    } @catch (NSException *exception) {
-      NSLog(@"Error sending event managedConfigDidChange to JS details=%@", exception.reason);
+    if(databaseName){
+      databaseDir = [NSString stringWithFormat:@"%@/%@%@", appGroupDir[@"databasePath"], databaseName , @".db"];
     }
-  }
-}
-
-- (void) remoteConfigChanged {
-  NSDictionary *response = [[NSUserDefaults standardUserDefaults] dictionaryForKey:configurationKey];
-  NSDictionary *group = [self.sharedUserDefaults dictionaryForKey:configurationKey];
   
-  if (response && ![response isEqualToDictionary:group]) {
-    // copies the managed configuration so it is accessible in the Extensions
-    [self.sharedUserDefaults setObject:response forKey:configurationKey];
-  }
-  
-  if (hasListeners) {
-    @try {
-      [self sendEventWithName:@"managedConfigDidChange" body:response];
-    } @catch (NSException *exception) {
-      NSLog(@"Error sending event managedConfigDidChange to JS details=%@", exception.reason);
+    if(shouldRemoveDirectory){
+      databaseDir = appGroupDir[@"databasePath"];
     }
+
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSError *error = nil;
+
+    if (!shouldRemoveDirectory && [fileManager fileExistsAtPath:[NSString stringWithFormat:@"%@-wal", databaseDir]]) {
+      [fileManager removeItemAtPath:[NSString stringWithFormat:@"%@-wal", databaseDir] error:nil];
+    }
+    
+    if (!shouldRemoveDirectory && [fileManager fileExistsAtPath:[NSString stringWithFormat:@"%@-shm", databaseDir]]) {
+      [fileManager removeItemAtPath:[NSString stringWithFormat:@"%@-shm", databaseDir] error:nil];
+    }
+    
+    BOOL  successCode  = [fileManager removeItemAtPath:databaseDir error:&error];
+    NSNumber *success= [NSNumber numberWithBool:successCode];
+
+    callback(@[(error ?: [NSNull null]), success]);
+  }
+  @catch (NSException *exception) {
+      NSLog(@"%@", exception.reason);
+    callback(@[exception.reason, @NO]);
   }
 }
 
-RCT_EXPORT_METHOD(getConfig:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject) {
-  NSDictionary *response = [[NSUserDefaults standardUserDefaults] dictionaryForKey:configurationKey];
-  if (response) {
-    resolve(response);
+RCT_EXPORT_METHOD(renameDatabase: (NSString *)databaseName  to: (NSString *) newDBName callback: (RCTResponseSenderBlock)callback){
+  @try {
+    NSDictionary *appGroupDir = [self appGroupSharedDirectory];
+    NSString *databaseDir;
+    NSString *newDBDir;
+    
+    if(databaseName){
+      databaseDir = [NSString stringWithFormat:@"%@/%@%@", appGroupDir[@"databasePath"], databaseName , @".db"];
+    }
+
+    if (newDBName){
+      newDBDir = [NSString stringWithFormat:@"%@/%@%@", appGroupDir[@"databasePath"], newDBName , @".db"];
+    }
+
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSError *error = nil;
+
+    BOOL destinationHasFile = [fileManager fileExistsAtPath:newDBDir];
+
+    if (!destinationHasFile && [fileManager fileExistsAtPath:[NSString stringWithFormat:@"%@-wal", databaseDir]]) {
+      [fileManager moveItemAtPath:[NSString stringWithFormat:@"%@-wal", databaseDir] toPath:[NSString stringWithFormat:@"%@-wal", newDBDir] error:nil];
+    }
+    
+    if (!destinationHasFile && [fileManager fileExistsAtPath:[NSString stringWithFormat:@"%@-shm", databaseDir]]) {
+      [fileManager moveItemAtPath:[NSString stringWithFormat:@"%@-shm", databaseDir] toPath:[NSString stringWithFormat:@"%@-shm", newDBDir] error:nil];
+    }
+    
+    BOOL  successCode  = destinationHasFile;
+    if (!destinationHasFile &&  [fileManager fileExistsAtPath:databaseDir]){
+      successCode = [fileManager moveItemAtPath:databaseDir toPath: newDBDir error:&error];
+    }
+    NSNumber *success= [NSNumber numberWithBool:successCode];
+
+    callback(@[(error ?: [NSNull null]), success]);
   }
-  else {
-    resolve(@{});
+  @catch (NSException *exception) {
+      NSLog(@"%@", exception.reason);
+    callback(@[exception.reason, @NO]);
   }
 }
 
-RCT_EXPORT_METHOD(isRunningInSplitView:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject) {
-  BOOL isRunningInFullScreen = CGRectEqualToRect(
-                                                 [UIApplication sharedApplication].delegate.window.frame,
-                                                 [UIApplication sharedApplication].delegate.window.screen.bounds);
-  resolve(@{
-            @"isSplitView": @(!isRunningInFullScreen)
-            });
-}
+RCT_EXPORT_METHOD(deleteEntititesFile: (RCTResponseSenderBlock) callback) {
+  @try {
+    NSDictionary *appGroupDir = [self appGroupSharedDirectory];
+    NSString *entities = [NSString stringWithFormat:@"%@/entities", appGroupDir[@"sharedDirectory"]];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    NSError *error = nil;
 
-RCT_EXPORT_METHOD(quitApp)
-{
-  exit(0);
-}
-
-RCT_EXPORT_METHOD(supportsFaceId:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject) {
-  LAContext *context = [[LAContext alloc] init];
-  NSError *error;
-
-  // context.biometryType is initialized when canEvaluatePolicy, regardless of the error or return value
-  [context canEvaluatePolicy:LAPolicyDeviceOwnerAuthentication error:&error];
-
-  resolve(@{
-            @"supportsFaceId": @(context.biometryType == LABiometryTypeFaceID)
-            });
+    BOOL  successCode  = [fileManager removeItemAtPath:entities error:&error];
+    NSNumber *success= [NSNumber numberWithBool:successCode];
+    callback(@[success]);
+  }
+  @catch (NSException *exception) {
+    callback(@[@NO]);
+  }
 }
 
 RCT_EXPORT_METHOD(addListener:(NSString *)eventName) {
@@ -192,6 +151,29 @@ RCT_EXPORT_METHOD(addListener:(NSString *)eventName) {
 
 RCT_EXPORT_METHOD(removeListeners:(double)count) {
   // Keep: Required for RN built in Event Emitter Calls.
+}
+
+RCT_EXPORT_METHOD(createThumbnail:(NSDictionary *)config findEventsWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSMutableDictionary *newConfig = [config mutableCopy];
+  NSMutableDictionary *headers = [config[@"headers"] ?: @{} mutableCopy];
+  NSString *url = (NSString *)[config objectForKey:@"url"] ?: @"";
+  NSURL *vidURL = nil;
+  NSString *url_ = [url lowercaseString];
+  
+  if ([url_ hasPrefix:@"http://"] || [url_ hasPrefix:@"https://"] || [url_ hasPrefix:@"file://"]) {
+    vidURL = [NSURL URLWithString:url];
+    NSString *serverUrl = [NSString stringWithFormat:@"%@://%@:%@", vidURL.scheme, vidURL.host, vidURL.port];
+    if (vidURL != nil) {
+      NSString *token = [[GekidouWrapper default] getTokenFor:serverUrl];
+      if (token != nil) {
+
+        headers[@"Authorization"] = [NSString stringWithFormat:@"Bearer %@", token];
+        newConfig[@"headers"] = headers;
+      }
+    }
+  }
+  [CreateThumbnail create:newConfig findEventsWithResolver:resolve rejecter:reject];
 }
 
 @end

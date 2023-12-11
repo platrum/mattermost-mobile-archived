@@ -1,21 +1,17 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {connect} from 'react-redux';
+import {withDatabase, withObservables} from '@nozbe/watermelondb/react';
 
-import {getTheme} from '@mm-redux/selectors/entities/preferences';
-import {getCurrentTeamId} from '@mm-redux/selectors/entities/teams';
-import {GlobalState} from '@mm-redux/types/store';
-import {appsEnabled} from '@utils/apps';
+import {observeConfigBooleanValue, observeCurrentTeamId} from '@queries/servers/system';
 
 import AppSlashSuggestion from './app_slash_suggestion';
 
-function mapStateToProps(state: GlobalState) {
-    return {
-        currentTeamId: getCurrentTeamId(state),
-        theme: getTheme(state),
-        appsEnabled: appsEnabled(state),
-    };
-}
+import type {WithDatabaseArgs} from '@typings/database/database';
 
-export default connect(mapStateToProps)(AppSlashSuggestion);
+const enhanced = withObservables([], ({database}: WithDatabaseArgs) => ({
+    currentTeamId: observeCurrentTeamId(database),
+    isAppsEnabled: observeConfigBooleanValue(database, 'FeatureFlagAppsEnabled'),
+}));
+
+export default withDatabase(enhanced(AppSlashSuggestion));

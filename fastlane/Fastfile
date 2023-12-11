@@ -14,11 +14,11 @@ before_all do
   ENV['SPACESHIP_SKIP_2FA_UPGRADE'] = '1'
 
   is_build_pr = ENV['BUILD_PR'] == 'true'
-  if is_build_pr && ENV['CIRCLECI'] == 'true'
-    ENV['BRANCH_TO_BUILD'] = ENV['CIRCLE_BRANCH']
+  if is_build_pr && ENV['CI'] == 'true'
+    ENV['BRANCH_TO_BUILD'] = ENV['GITHUB_REF_NAME']
   end
 
-  if ENV['CIRCLECI'] != 'true'
+  if ENV['CI'] != 'true'
     # Raises an error is git is not clean
     if ENV['COMMIT_CHANGES_TO_GIT'] == 'true'
       ensure_git_status_clean
@@ -46,9 +46,9 @@ before_all do
 end
 
 after_all do |lane|
-  if ENV['CIRCLECI'] != 'true'
+  if ENV['CI'] != 'true'
     if ENV['RESET_GIT_BRANCH'] == 'true'
-      branch = ENV['BRANCH_TO_BUILD'] || 'master'
+      branch = ENV['BRANCH_TO_BUILD'] || 'main'
       package_id = ENV['MAIN_APP_IDENTIFIER'] || 'com.mattermost.rnbeta'
       beta_dir = '../android/app/src/main/java/com/mattermost/rnbeta'
       release_dir = "../android/app/src/main/java/#{package_id.gsub '.', '/'}"
@@ -68,7 +68,7 @@ after_all do |lane|
         sh "git branch -D #{local_branch}"
         UI.success("Deleted working branch \"#{local_branch}\"")
         if lane.to_s == 'build_pr'
-          sh 'git checkout master'
+          sh 'git checkout main'
           ## Remove the branch for the PR
           sh "git branch -D #{branch}"
           UI.success("Deleted PR branch \"#{branch}\"")
@@ -101,7 +101,7 @@ lane :set_app_version do
     )
 
     if ENV['COMMIT_CHANGES_TO_GIT'] == 'true'
-      msg = ENV['INCREMENT_VERSION_NUMBER_MESSAGE'] || 'Bump app version number to '
+      msg = ENV['INCREMENT_VERSION_NUMBER_MESSAGE'] || 'Bump app version number to'
       commit_message = "#{msg} #{version_number.to_s}"
       build_folder_path = Dir[File.expand_path('..')].first
       repo_path = (sh "git -C #{build_folder_path} rev-parse --show-toplevel").strip
@@ -132,7 +132,7 @@ lane :set_app_build_number do
 
 
     if ENV['COMMIT_CHANGES_TO_GIT'] == 'true'
-      msg = ENV['INCREMENT_BUILD_NUMBER_MESSAGE'] || 'Bump app build number to '
+      msg = ENV['INCREMENT_BUILD_NUMBER_MESSAGE'] || 'Bump app build number to'
       commit_message = "#{msg} #{build_number.to_s}"
       build_folder_path = Dir[File.expand_path('..')].first
       repo_path = (sh "git -C #{build_folder_path} rev-parse --show-toplevel").strip
@@ -171,10 +171,46 @@ lane :configure do
     json['SentryDsnAndroid'] = ENV['SENTRY_DSN_ANDROID']
   end
 
+  # Configure show app review
+  if ENV['SHOW_REVIEW'] == 'true'
+    json['ShowReview'] = true
+  end
+
+  # Configure Show Onboarding
+  if ENV['SHOW_ONBOARDING'] == 'true'
+    json['ShowOnboarding'] = true
+  end
+
   # Save the config.json file
   save_json_as_file('../dist/assets/config.json', json)
 
   configured = true
+end
+
+desc 'Set Sentry upload properties'
+lane :link_sentry do |options|
+  if ENV['SENTRY_ENABLED'] == 'true'
+    os_type = options[:os_type].downcase
+    if os_type == 'ios'
+      project_dir = 'ios/'
+      sentry_project = ENV['SENTRY_PROJECT_IOS']
+    elsif os_type == 'android'
+      project_dir = 'android/'
+      sentry_project = ENV['SENTRY_PROJECT_ANDROID']
+    end
+    url = ENV['SENTRY_URL'] || 'https://sentry.io'
+    File.open("../#{project_dir}sentry.properties", 'w+') do |f|
+      UI.message('Creating sentry.properties from environment')
+      f.write(
+        "defaults.url=#{url}\n"\
+        "defaults.org=#{ENV['SENTRY_ORG']}\n"\
+        "defaults.project=#{sentry_project}\n"\
+        "auth.token=#{ENV['SENTRY_AUTH_TOKEN']}\n"
+      )
+    end
+  else
+    UI.message('Not creating sentry.properties because Sentry is disabled')
+  end
 end
 
 desc 'Upload file to s3'
@@ -183,7 +219,7 @@ lane :upload_file_to_s3 do |options|
   extensions = os_type == "android" ? ["*.apk", "*.aab"] : ["*.ipa"]
   build_folder_path = Dir[File.expand_path('..')].first
   files = []
-  
+
   unless options[:file].nil? || options[:file].empty?
     files.push("#{build_folder_path}/#{options[:file]}")
   else
@@ -202,7 +238,7 @@ lane :upload_file_to_s3 do |options|
       pr_file = File.basename(files.first)
       plist_file = "#{File.basename(files.first, '.*')}.plist"
     else
-      version_number = os_type == "android" ? 
+      version_number = os_type == "android" ?
         android_get_version_name(gradle_file: './android/app/build.gradle') :
         get_version_number(xcodeproj: './ios/Mattermost.xcodeproj', target: 'Mattermost')
       build_number = os_type == "android" ?
@@ -215,7 +251,7 @@ lane :upload_file_to_s3 do |options|
     s3_folder = is_build_pr ?
       "#{ENV['AWS_FOLDER_NAME']}/#{ENV['BRANCH_TO_BUILD']}" :
       "#{ENV['AWS_FOLDER_NAME']}/#{version_number}/#{build_number}"
-    
+
     s3 = Aws::S3::Resource.new(region: s3_region)
     s3_bucket = s3.bucket(s3_bucket_name)
     mutex = Mutex.new
@@ -237,7 +273,7 @@ lane :upload_file_to_s3 do |options|
           puts "[#{Thread.current["file_number"]}/#{total_files}] #{filename} uploading..."
           s3_file = s3_bucket.object("#{s3_folder}/#{filename}")
           s3_file.upload_file("#{file}")
-          links.push(s3_file.public_url)
+          links.push("https://#{s3_bucket_name}/#{s3_folder}/#{filename}")
         end
       }
     end
@@ -262,7 +298,7 @@ lane :upload_file_to_s3 do |options|
                             :install_url => install_url
                         })
     end
-  
+
     if options[:file] == 'Mattermost-simulator-x86_64.app.zip'
       pretext = '#### New iOS build for VM/Simulator'
       msg = "Download link: #{links.first}"
@@ -273,7 +309,7 @@ lane :upload_file_to_s3 do |options|
                                       :title => '',
                                       :thumb_url => 'https://support.apple.com/library/content/dam/edam/applecare/images/en_US/iOS/move-to-ios-icon.png',
                                       :msg => msg,
-                                      :default_payloads => [],
+                                      :default_payloads => [:git_branch, :last_git_commit_hash],
                                       :success => true,
                                   })
     end
@@ -284,7 +320,7 @@ end
 
 desc 'Create GitHub release'
 lane :github do
-  tag = ENV['CIRCLE_TAG'] || ENV['TAG']
+  tag = ENV['GITHUB_REF_NAME'] || ENV['TAG']
 
   if tag
     version = android_get_version_name(gradle_file: './android/app/build.gradle')
@@ -314,16 +350,18 @@ end
 
 platform :ios do
   before_all do
-    if ENV['CIRCLECI'] == 'true'
-      setup_circle_ci
+    if ENV['CI'] == 'true'
+      setup_ci
     end
   end
 
-  desc 'Get iOS adhoc profiles'
-  lane :adhoc do
-    if ENV['MATCH_TYPE'] != 'adhoc' && !ENV['MATCH_PASSWORD'].nil? && !ENV['MATCH_PASSWORD'].empty?
+  desc 'Get iOS match profiles'
+  lane :certs do
+    if !ENV['IOS_API_KEY_ID'].nil? && !ENV['IOS_API_KEY_ID'].empty?
+      api_key = get_apple_api_key()
       match(
-          type: 'adhoc'
+          api_key: api_key,
+          type: ENV['MATCH_TYPE'] || 'adhoc'
       )
     end
   end
@@ -335,6 +373,7 @@ platform :ios do
     end
     update_identifiers
     replace_assets
+    link_sentry({:os_type => "ios"})
     build_ios
     upload_file_to_s3({:os_type => "ios"})
   end
@@ -351,48 +390,43 @@ platform :ios do
     update_identifiers
     replace_assets
 
-    sh 'rm -rf ../build-ios/'
-    sh 'cd ../ios/ && xcodebuild -workspace Mattermost.xcworkspace/ -scheme Mattermost -sdk iphoneos -configuration Release -parallelizeTargets -resultBundlePath ../build-ios/result -derivedDataPath ../build-ios/ CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO'
-    sh 'cd ../build-ios/ && mkdir -p Payload && cp -R Build/Products/Release-iphoneos/Mattermost.app Payload/ && zip -r Mattermost-unsigned.ipa Payload/'
-    sh 'mv ../build-ios/Mattermost-unsigned.ipa ../'
-    sh 'rm -rf ../build-ios/'
+    build_ios_unsigned_or_simulator(
+      more_xc_args: "-sdk iphoneos CODE_SIGNING_ALLOWED=NO",
+      rel_build_dir: "Release-iphoneos",
+      output_file: "Mattermost-unsigned.ipa",
+    )
   end
 
   lane :simulator do
     UI.success('Building iOS app for simulator')
 
-    ENV['APP_NAME'] = 'Mattermost'
-    ENV['REPLACE_ASSETS'] = 'true'
-    ENV['BUILD_FOR_RELEASE'] = 'true'
-    ENV['APP_SCHEME'] = 'mattermost'
+    output_file = "Mattermost-simulator-x86_64.app.zip"
 
-    update_identifiers
-    replace_assets
-
-    data_path = 'ios'
-    if ENV['CIRCLECI'] == 'true'
-      data_path = 'build-ios'
-    end
-
-    sh 'rm -rf ../build-ios/'
-    sh 'cd ../ios && xcodebuild -workspace Mattermost.xcworkspace -scheme Mattermost -arch x86_64 -sdk iphonesimulator -configuration Release -parallelizeTargets -derivedDataPath ../build-ios ENABLE_BITCODE=NO CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO ENABLE_BITCODE=NO'
-    sh "cd ../#{data_path}/Build/Products/Release-iphonesimulator && zip -r Mattermost-simulator-x86_64.app.zip Mattermost.app"
-    sh "mv ../#{data_path}/Build/Products/Release-iphonesimulator/Mattermost-simulator-x86_64.app.zip ../"
-    sh 'rm -rf ../build-ios/'
+    build_ios_unsigned_or_simulator(
+      more_xc_args: "-sdk iphonesimulator -arch x86_64",
+      rel_build_dir: "Release-iphonesimulator",
+      output_file: output_file,
+    )
 
     upload_file_to_s3({
       :os_type => "ios",
-      :file => "Mattermost-simulator-x86_64.app.zip"
+      :file => output_file
     })
   end
 
   lane :update_identifiers do
-    # Set the name for the app
+    # Set the name for the app and share extension
     app_name =  ENV['APP_NAME'] || 'Mattermost Beta'
     update_info_plist(
         xcodeproj: './ios/Mattermost.xcodeproj',
         plist_path: 'Mattermost/Info.plist',
         display_name: app_name
+    )
+
+    update_info_plist(
+      xcodeproj: './ios/Mattermost.xcodeproj',
+      plist_path: 'MattermostShare/Info.plist',
+      display_name: app_name
     )
 
     # Set the notification service extension bundle identifier
@@ -480,19 +514,6 @@ platform :ios do
     )
 
     update_app_group_identifiers(
-        entitlements_file: './ios/MattermostShare/MattermostShare.entitlements',
-        app_group_identifiers: [app_group_id]
-    )
-
-    update_info_plist(
-      xcodeproj: './ios/Mattermost.xcodeproj',
-      plist_path: 'MattermostShare/Info.plist',
-      block: proc do |plist|
-        plist["AppGroupIdentifier"] = app_group_id
-      end
-    )
-
-    update_app_group_identifiers(
         entitlements_file: './ios/NotificationService/NotificationService.entitlements',
         app_group_identifiers: [app_group_id]
     )
@@ -505,9 +526,31 @@ platform :ios do
       end
     )
 
+    update_app_group_identifiers(
+      entitlements_file: './ios/MattermostShare/MattermostShare.entitlements',
+      app_group_identifiers: [app_group_id]
+    )
+
+    update_info_plist(
+      xcodeproj: './ios/Mattermost.xcodeproj',
+      plist_path: 'MattermostShare/Info.plist',
+      block: proc do |plist|
+        plist["AppGroupIdentifier"] = app_group_id
+      end
+    )
+
     # Sync the provisioning profiles using match
-    if ENV['SYNC_PROVISIONING_PROFILES'] == 'true' && !ENV['MATCH_PASSWORD'].nil? && !ENV['MATCH_PASSWORD'].empty?
-      match(type: ENV['MATCH_TYPE'] || 'adhoc')
+    if ENV['SYNC_PROVISIONING_PROFILES'] == 'true'
+      if !ENV['MATCH_PASSWORD'].nil? && !ENV['MATCH_PASSWORD'].empty?
+        match(type: ENV['MATCH_TYPE'] || 'adhoc')
+      end
+      if !ENV['IOS_API_KEY_ID'].nil? && !ENV['IOS_API_KEY_ID'].empty?
+        api_key = get_apple_api_key()
+        match(
+            api_key: api_key,
+            type: ENV['MATCH_TYPE'] || 'adhoc'
+        )
+      end
     end
   end
 
@@ -517,6 +560,36 @@ platform :ios do
       sh 'cp -R ../dist/assets/release/splash_screen/ios/LaunchScreen.storyboard ../ios/SplashScreenResource/LaunchScreen.storyboard'
       sh 'cp -R ../dist/assets/release/splash_screen/ios/SplashBackground.imageset ../ios/Mattermost/Images.xcassets/'
       sh 'cp -R ../dist/assets/release/splash_screen/ios/SplashIcon.imageset ../ios/Mattermost/Images.xcassets/'
+    end
+
+    app_name =  ENV['APP_NAME'] || 'Mattermost Beta'
+    localization_base_path = '../dist/assets/i18n/'
+    Dir.glob('*.json', base: localization_base_path) do |item|
+      localization_file = File.read(localization_base_path + item)
+      json = JSON.parse(localization_file)
+
+      plist_strings = ''
+      localized_strings = ''
+      json.each do |key, value|
+        unless value.nil? || value.empty?
+          if key.match?('mobile.ios.plist')
+            plist_strings.concat("#{key.split('.').last} = \"#{value}\";\n")
+          else
+            value.gsub!('\\', '\\\\\\\\') # How to replace backslash with double backslash https://stackoverflow.com/a/6209532
+            value.gsub!('"', '\"')
+            localized_strings.concat("\"#{key}\" = \"#{value}\";\n")
+          end
+        end
+      end
+
+      plist_strings.gsub!('{applicationName}', "#{app_name}")
+      localized_strings.gsub!('{applicationName}', "#{app_name}")
+
+      language = item.split('.').first
+      project_localization_path = "../ios/Mattermost/i18n/#{language}.lproj"
+      FileUtils.mkdir_p project_localization_path
+      File.write("#{project_localization_path}/InfoPlist.strings", plist_strings)
+      File.write("#{project_localization_path}/Localizable.strings", localized_strings)
     end
   end
 
@@ -575,6 +648,9 @@ platform :ios do
     app_name_sub = app_name.gsub(" ", "_")
     config_mode = ENV['BUILD_FOR_RELEASE'] == 'true' ? 'Release' : 'Debug'
     method = ENV['IOS_BUILD_EXPORT_METHOD'].nil? || ENV['IOS_BUILD_EXPORT_METHOD'].empty? ? 'ad-hoc' : ENV['IOS_BUILD_EXPORT_METHOD']
+   
+    # Need to add xcargs to only notification and share extensions
+    xcargs = ENV['SENTRY_ENABLED'] == 'true' ? "SENTRY_DSN_IOS='#{ENV['SENTRY_DSN_IOS']}' SENTRY_ENABLED='#{ENV['SENTRY_ENABLED']}'" : ''
 
     setup_code_signing
 
@@ -590,8 +666,27 @@ platform :ios do
         export_options: {
             signingStyle: 'manual',
             iCloudContainerEnvironment: 'Production'
-        }
+        },
+        xcargs: xcargs
     )
+  end
+
+  def build_ios_unsigned_or_simulator(more_xc_args:, rel_build_dir:, output_file:)
+    root_dir = Dir[File.expand_path('..')].first
+    ios_build_dir = "#{root_dir}/ios/Build/Products"
+
+    ENV['APP_NAME'] = 'Mattermost'
+    ENV['REPLACE_ASSETS'] = 'true'
+    ENV['BUILD_FOR_RELEASE'] = 'true'
+    ENV['APP_SCHEME'] = 'mattermost'
+
+    update_identifiers
+    replace_assets
+
+    sh "rm -rf #{ios_build_dir}/"
+    sh "cd #{root_dir}/ios && xcodebuild -workspace Mattermost.xcworkspace -scheme Mattermost -configuration Release -parallelizeTargets CODE_SIGN_IDENTITY='' CODE_SIGNING_REQUIRED=NO SYMROOT='#{ios_build_dir}' #{more_xc_args} "
+    sh "cd #{ios_build_dir}/#{rel_build_dir} && zip -r #{output_file} Mattermost.app"
+    sh "mv #{ios_build_dir}/#{rel_build_dir}/#{output_file} #{root_dir}"
   end
 
 end
@@ -604,7 +699,7 @@ platform :android do
     end
     update_identifiers
     replace_assets
-    link_sentry_android
+    link_sentry({:os_type => "android"})
     build_android
     move_android_to_root
     upload_file_to_s3({:os_type => "android"})
@@ -643,6 +738,7 @@ platform :android do
     package_id = ENV['MAIN_APP_IDENTIFIER'] || 'com.mattermost.rnbeta'
     android_change_package_identifier(newIdentifier: package_id, manifest: './android/app/src/main/AndroidManifest.xml')
     android_update_application_id(app_folder_name: 'android/app', application_id: package_id)
+    android_update_namespace(app_folder_name: 'android/app', namespace: package_id)
 
     app_scheme = ENV['APP_SCHEME'] || 'mattermost'
     find_replace_string(
@@ -659,28 +755,15 @@ platform :android do
       )
     end
 
+    helpers_dir = './android/app/src/main/java/com/mattermost/helpers/'
     beta_dir = './android/app/src/main/java/com/mattermost/rnbeta/'
     release_dir = "./android/app/src/main/java/#{package_id.gsub '.', '/'}/"
-    if ENV['BUILD_FOR_RELEASE'] == 'true'
-      find_replace_string(
-          path_to_file: "#{beta_dir}MainApplication.java",
-          old_string: 'return BuildConfig.DEBUG;',
-          new_string: 'return false;'
-      )
-    end
-
     if release_dir != beta_dir
       unless Dir.exist?(".#{release_dir}")
         FileUtils.mkdir_p ".#{release_dir}"
       end
 
       sh "mv .#{beta_dir}* .#{release_dir}"
-
-      find_replace_string(
-          path_to_file: './android/app/BUCK',
-          old_string: 'package com.mattermost.rnbeta;',
-          new_string: "package #{package_id};"
-      )
 
       Dir.glob(".#{release_dir}*.java") do |item|
         find_replace_string(
@@ -690,11 +773,35 @@ platform :android do
         )
       end
 
+      Dir.glob(".#{release_dir}*.kt") do |item|
+        find_replace_string(
+            path_to_file: item[1..-1],
+            old_string: 'package com.mattermost.rnbeta',
+            new_string: "package #{package_id}"
+        )
+      end
+
       Dir.glob('../android/app/src/main/java/com/mattermost/share/*.java') do |item|
         find_replace_string(
             path_to_file: item[1..-1],
             old_string: 'import com.mattermost.rnbeta.MainApplication;',
             new_string: "import #{package_id}.MainApplication;"
+        )
+      end
+
+      Dir.glob('../android/app/src/main/java/com/mattermost/helpers/*.java') do |item|
+        find_replace_string(
+            path_to_file: item[1..-1],
+            old_string: 'import com.mattermost.rnbeta.*;',
+            new_string: "import #{package_id}.*;"
+        )
+      end
+
+      Dir.glob('../android/app/src/main/java/com/mattermost/helpers/*.kt') do |item|
+        find_replace_string(
+            path_to_file: item[1..-1],
+            old_string: 'import com.mattermost.rnbeta.*',
+            new_string: "import #{package_id}.*"
         )
       end
     end
@@ -739,6 +846,7 @@ platform :android do
     config_mode = ENV['BUILD_FOR_RELEASE'] == 'true' ? 'Release' : 'Debug'
     build_task = ENV['ANDROID_BUILD_TASK'].nil? || ENV['ANDROID_BUILD_TASK'].empty? ? 'assemble' : ENV['ANDROID_BUILD_TASK']
     build_task = build_task.split(",")
+
     if build_task.include?("assemble")
       gradle(
           task: 'app:assemble',
@@ -774,7 +882,7 @@ platform :android do
         dir_name = File.dirname(apks.first)
         json_path = Dir.glob(File.join(dir_name, '*.json')).first
       end
-  
+
       UI.message("JSON PATH APK #{json_path}")
       outputJson = load_config_json(json_path)
       paths = []
@@ -793,7 +901,7 @@ platform :android do
           UI.message("APK PATH \"#{new_apk_path}\", #{filterName}")
         end
       end
-  
+
       lane_context[SharedValues::GRADLE_ALL_APK_OUTPUT_PATHS] = paths
     end
 
@@ -802,23 +910,6 @@ platform :android do
       new_aab_path = "#{Pathname.new(File.expand_path(File.dirname(__FILE__))).parent.to_s}/#{app_name_sub}.aab"
       sh "mv #{aab} #{new_aab_path}"
       UI.message("AAB PATH \"#{new_aab_path}\"")
-    end
-  end
-
-  def link_sentry_android
-    if ENV['SENTRY_ENABLED'] == 'true'
-      url = 'https://sentry.io'
-      File.open('../android/sentry.properties', 'w+') do |f|
-        UI.message('Creating sentry.properties from environment')
-        f.write(
-            "defaults.url=#{url}\n"\
-        "defaults.org=#{ENV['SENTRY_ORG']}\n"\
-        "defaults.project=#{ENV['SENTRY_PROJECT_ANDROID']}\n"\
-        "auth.token=#{ENV['SENTRY_AUTH_TOKEN']}\n"
-        )
-      end
-    else
-      UI.message('Not creating sentry.properties because Sentry is disabled')
     end
   end
 end
@@ -842,7 +933,6 @@ def send_message_to_mattermost(options)
         message: options[:msg],
         default_payloads: options[:default_payloads],
         username: 'Fastlane',
-        icon_url: 'https://mattermost-plugin-media.s3.amazonaws.com/fastlane.png',
         payload: {},
         attachment_properties: {
             title: options[:title],
@@ -863,12 +953,9 @@ def send_message_to_mattermost(options)
   end
 end
 
-def submit_to_testflight(ipa_path)
-  ipa = (Dir.glob(ipa_path).select { |f| File.file? f}).first
-
-  if !ipa.nil?
-    UI.success("ipa file #{ipa}")
-    unless ENV['IOS_API_KEY_ID'].nil? || ENV['IOS_API_KEY_ID'].empty? ||
+def get_apple_api_key
+  api_key = ''
+  unless ENV['IOS_API_KEY_ID'].nil? || ENV['IOS_API_KEY_ID'].empty? ||
     ENV['IOS_API_ISSUER_ID'].nil? || ENV['IOS_API_ISSUER_ID'].empty? ||
     ENV['IOS_API_KEY'].nil? || ENV['IOS_API_KEY'].empty?
       api_key_path = "#{ENV['IOS_API_KEY_ID']}.p8"
@@ -880,15 +967,27 @@ def submit_to_testflight(ipa_path)
           f.write("\n") unless index == p8_array.length - 1
         end
       end
-    
+
       api_key = app_store_connect_api_key(
         key_id: ENV['IOS_API_KEY_ID'],
         issuer_id: ENV['IOS_API_ISSUER_ID'],
         key_filepath: "./#{api_key_path}",
         in_house: ENV['IOS_IN_HOUSE'] == 'true', # optional but may be required if using match/sigh
       )
-    
+
       File.delete("../#{api_key_path}")
+    end
+
+    return api_key
+end
+
+def submit_to_testflight(ipa_path)
+  ipa = (Dir.glob(ipa_path).select { |f| File.file? f}).first
+
+  if !ipa.nil?
+    UI.success("ipa file #{ipa}")
+    api_key = get_apple_api_key()
+    unless api_key.empty?
       pilot(
         ipa: ipa,
         api_key: api_key
@@ -948,7 +1047,7 @@ def submit_to_google_play(file_path)
   else
     apks = Dir.glob(file_path).select { |f| File.file? f}
     filenames = apks.map {|f| File.basename(f)}
-  
+
     if(apks.length > 0)
       unless ENV['SUPPLY_JSON_KEY'].nil? || ENV['SUPPLY_JSON_KEY'].empty?
         supply(
@@ -959,7 +1058,7 @@ def submit_to_google_play(file_path)
         )
       end
     else
-      UI.user_error! "There are no apks in #{file_path}"
+      UI.user_error! "There are no apks in #{apk_path}"
       return
     end
   end

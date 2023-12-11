@@ -1,32 +1,32 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useCallback, useRef} from 'react';
-import {useWindowDimensions, View} from 'react-native';
-import FastImage, {Source} from 'react-native-fast-image';
+import React, {useMemo, useRef} from 'react';
+import {TouchableWithoutFeedback, useWindowDimensions} from 'react-native';
+import FastImage, {type Source} from 'react-native-fast-image';
+import Animated from 'react-native-reanimated';
 
-import {TABLET_WIDTH} from '@components/sidebars/drawer_layout';
-import TouchableWithFeedback from '@components/touchable_with_feedback';
-import {DeviceTypes} from '@constants';
-import {generateId} from '@utils/file';
-import {openGallerWithMockFile} from '@utils/gallery';
+import {View as ViewConstants} from '@constants';
+import {GalleryInit} from '@context/gallery';
+import {useGalleryItem} from '@hooks/gallery';
+import {lookupMimeType} from '@utils/file';
+import {openGalleryAtIndex} from '@utils/gallery';
+import {generateId} from '@utils/general';
+import {isTablet} from '@utils/helpers';
 import {calculateDimensions} from '@utils/images';
-import {getNearestPoint} from '@utils/opengraph';
+import {type BestImage, getNearestPoint} from '@utils/opengraph';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
-import {isValidUrl} from '@utils/url';
+import {extractFilenameFromUrl, isValidUrl} from '@utils/url';
 
-import type {Post} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
-
-type BestImage = {
-    secure_url?: string;
-    url?: string;
-}
+import type {GalleryItemType} from '@typings/screens/gallery';
 
 type OpengraphImageProps = {
     isReplyPost: boolean;
-    post: Post;
+    layoutWidth?: number;
+    location: string;
+    metadata: PostMetadata | undefined | null;
     openGraphImages: never[];
+    postId: string;
     theme: Theme;
 }
 
@@ -52,22 +52,24 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
 const getViewPostWidth = (isReplyPost: boolean, deviceHeight: number, deviceWidth: number) => {
     const deviceSize = deviceWidth > deviceHeight ? deviceHeight : deviceWidth;
     const viewPortWidth = deviceSize - VIEWPORT_IMAGE_OFFSET - (isReplyPost ? VIEWPORT_IMAGE_REPLY_OFFSET : 0);
-    const tabletOffset = DeviceTypes.IS_TABLET ? TABLET_WIDTH : 0;
+    const tabletOffset = isTablet() ? ViewConstants.TABLET_SIDEBAR_WIDTH : 0;
 
     return viewPortWidth - tabletOffset;
 };
 
-const OpengraphImage = ({isReplyPost, post, openGraphImages, theme}: OpengraphImageProps) => {
-    const fileId = useRef(generateId()).current;
+const OpengraphImage = ({isReplyPost, layoutWidth, location, metadata, openGraphImages, postId, theme}: OpengraphImageProps) => {
+    const fileId = useRef(generateId('uid')).current;
     const dimensions = useWindowDimensions();
     const style = getStyleSheet(theme);
-    const bestDimensions = {
+    const galleryIdentifier = `${postId}-OpenGraphImage-${location}`;
+
+    const bestDimensions = useMemo(() => ({
         height: MAX_IMAGE_HEIGHT,
-        width: getViewPostWidth(isReplyPost, dimensions.height, dimensions.width),
-    };
-    const bestImage = getNearestPoint(bestDimensions, openGraphImages, 'width', 'height') as BestImage;
+        width: layoutWidth || getViewPostWidth(isReplyPost, dimensions.height, dimensions.width),
+    }), [isReplyPost, dimensions]);
+    const bestImage = getNearestPoint(bestDimensions, openGraphImages, 'width', 'height');
     const imageUrl = (bestImage.secure_url || bestImage.url)!;
-    const imagesMetadata = post.metadata.images;
+    const imagesMetadata = metadata?.images;
 
     let ogImage;
     if (imagesMetadata && imagesMetadata[imageUrl]) {
@@ -86,33 +88,54 @@ const OpengraphImage = ({isReplyPost, post, openGraphImages, theme}: OpengraphIm
 
     let imageDimensions = bestDimensions;
     if (ogImage?.width && ogImage?.height) {
-        imageDimensions = calculateDimensions(ogImage.height, ogImage.width, getViewPostWidth(isReplyPost, dimensions.height, dimensions.width));
+        imageDimensions = calculateDimensions(ogImage.height, ogImage.width, (layoutWidth || getViewPostWidth(isReplyPost, dimensions.height, dimensions.width)) - 20);
     }
 
-    const onPress = useCallback(() => {
-        openGallerWithMockFile(imageUrl, post.id, imageDimensions.height, imageDimensions.width, fileId);
-    }, []);
+    const onPress = () => {
+        const item: GalleryItemType = {
+            id: fileId,
+            postId,
+            uri: imageUrl,
+            width: imageDimensions.width,
+            height: imageDimensions.height,
+            name: extractFilenameFromUrl(imageUrl) || 'openGraph.png',
+            mime_type: lookupMimeType(imageUrl) || 'image/png',
+            type: 'image',
+            lastPictureUpdate: 0,
+        };
+        openGalleryAtIndex(galleryIdentifier, 0, [item]);
+    };
 
     const source: Source = {};
     if (isValidUrl(imageUrl)) {
         source.uri = imageUrl;
     }
 
+    const {ref, onGestureEvent, styles} = useGalleryItem(
+        galleryIdentifier,
+        0,
+        onPress,
+    );
+
     const dimensionsStyle = {width: imageDimensions.width, height: imageDimensions.height};
     return (
-        <View style={[style.imageContainer, dimensionsStyle]}>
-            <TouchableWithFeedback
-                onPress={onPress}
-                type={'none'}
-            >
-                <FastImage
-                    style={[style.image, dimensionsStyle]}
-                    source={source}
-                    resizeMode='contain'
-                    nativeID={`image-${fileId}`}
-                />
-            </TouchableWithFeedback>
-        </View>
+        <GalleryInit galleryIdentifier={galleryIdentifier}>
+            <Animated.View style={[styles, style.imageContainer, dimensionsStyle]}>
+                <TouchableWithoutFeedback onPress={onGestureEvent}>
+                    <Animated.View testID={`OpenGraphImage-${fileId}`}>
+                        <FastImage
+                            style={[style.image, dimensionsStyle]}
+                            source={source}
+
+                            // @ts-expect-error legacy ref
+                            ref={ref}
+                            resizeMode='contain'
+                            nativeID={`OpenGraphImage-${fileId}`}
+                        />
+                    </Animated.View>
+                </TouchableWithoutFeedback>
+            </Animated.View>
+        </GalleryInit>
     );
 };
 

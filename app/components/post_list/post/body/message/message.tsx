@@ -2,32 +2,40 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback, useState} from 'react';
-import {LayoutChangeEvent, useWindowDimensions, ScrollView, View} from 'react-native';
+import {type LayoutChangeEvent, ScrollView, useWindowDimensions, View} from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import Markdown from '@components/markdown';
-import {SEARCH} from '@constants/screen';
+import {SEARCH} from '@constants/screens';
 import {useShowMoreAnimatedStyle} from '@hooks/show_more';
-import {isEdited, isPostPendingOrFailed} from '@mm-redux/utils/post_utils';
 import {getMarkdownTextStyles, getMarkdownBlockStyles} from '@utils/markdown';
 import {makeStyleSheetFromTheme} from '@utils/theme';
+import {typography} from '@utils/typography';
 
 import ShowMoreButton from './show_more_button';
 
-import type {UserMentionKey} from '@mm-redux/selectors/entities/users';
-import type {Post} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
+import type PostModel from '@typings/database/models/servers/post';
+import type UserModel from '@typings/database/models/servers/user';
+import type {HighlightWithoutNotificationKey, SearchPattern, UserMentionKey} from '@typings/global/markdown';
 
 type MessageProps = {
+    currentUser?: UserModel;
+    isHighlightWithoutNotificationLicensed?: boolean;
     highlight: boolean;
+    isEdited: boolean;
+    isPendingOrFailed: boolean;
     isReplyPost: boolean;
+    layoutWidth?: number;
     location: string;
-    mentionKeys: UserMentionKey[];
-    post: Post;
+    post: PostModel;
+    searchPatterns?: SearchPattern[];
     theme: Theme;
 }
 
 const SHOW_MORE_HEIGHT = 54;
+
+const EMPTY_MENTION_KEYS: UserMentionKey[] = [];
+const EMPTY_HIGHLIGHT_KEYS: HighlightWithoutNotificationKey[] = [];
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     return {
@@ -39,8 +47,8 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
         },
         message: {
             color: theme.centerChannelColor,
-            fontSize: 15,
-            lineHeight: 20,
+            ...typography('Body', 200),
+            lineHeight: undefined, // remove line height, not needed and causes problems with md images
         },
         pendingPost: {
             opacity: 0.5,
@@ -48,7 +56,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     };
 });
 
-const Message = ({highlight, isReplyPost, location, mentionKeys, post, theme}: MessageProps) => {
+const Message = ({currentUser, isHighlightWithoutNotificationLicensed, highlight, isEdited, isPendingOrFailed, isReplyPost, layoutWidth, location, post, searchPatterns, theme}: MessageProps) => {
     const [open, setOpen] = useState(false);
     const [height, setHeight] = useState<number|undefined>();
     const dimensions = useWindowDimensions();
@@ -71,21 +79,27 @@ const Message = ({highlight, isReplyPost, location, mentionKeys, post, theme}: M
                     showsHorizontalScrollIndicator={false}
                 >
                     <View
-                        style={[style.messageContainer, (isReplyPost && style.reply), (isPostPendingOrFailed(post) && style.pendingPost)]}
+                        style={[style.messageContainer, (isReplyPost && style.reply), (isPendingOrFailed && style.pendingPost)]}
                         onLayout={onLayout}
                     >
                         <Markdown
                             baseTextStyle={style.message}
                             blockStyles={blockStyles}
+                            channelId={post.channelId}
                             channelMentions={post.props?.channel_mentions}
                             imagesMetadata={post.metadata?.images}
-                            isEdited={isEdited(post)}
+                            isEdited={isEdited}
                             isReplyPost={isReplyPost}
                             isSearchResult={location === SEARCH}
+                            layoutWidth={layoutWidth}
+                            location={location}
                             postId={post.id}
                             textStyles={textStyles}
                             value={post.message}
-                            mentionKeys={mentionKeys}
+                            mentionKeys={currentUser?.mentionKeys ?? EMPTY_MENTION_KEYS}
+                            highlightKeys={isHighlightWithoutNotificationLicensed ? (currentUser?.highlightKeys ?? EMPTY_HIGHLIGHT_KEYS) : EMPTY_HIGHLIGHT_KEYS}
+                            searchPatterns={searchPatterns}
+                            theme={theme}
                         />
                     </View>
                 </ScrollView>

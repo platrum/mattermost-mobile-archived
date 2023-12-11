@@ -2,22 +2,21 @@
 // See LICENSE.txt for license information.
 
 import React, {useState} from 'react';
-import {injectIntl, intlShape} from 'react-intl';
+import {useIntl} from 'react-intl';
 import {Text} from 'react-native';
 
 import FormattedMarkdownText from '@components/formatted_markdown_text';
 import FormattedText from '@components/formatted_text';
 import Markdown from '@components/markdown';
 import {getMarkdownTextStyles} from '@utils/markdown';
-import {makeStyleSheetFromTheme} from '@utils/theme';
+import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
 import {postTypeMessages, systemMessages} from './messages';
 
-import type {Theme} from '@mm-redux/types/theme';
-
 type LastUsersProps = {
     actor: string;
-    intl: typeof intlShape;
+    channelId?: string;
+    location: string;
     postType: string;
     usernames: string[];
     theme: Theme;
@@ -26,18 +25,21 @@ type LastUsersProps = {
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     return {
         baseText: {
-            color: theme.centerChannelColor,
-            opacity: 0.6,
+            color: changeOpacity(theme.centerChannelColor, 0.6),
+            fontSize: 16,
+            lineHeight: 20,
         },
         linkText: {
             color: theme.linkColor,
-            opacity: 0.8,
+            fontSize: 16,
+            lineHeight: 20,
         },
     };
 });
 
-const LastUsers = ({actor, intl, postType, theme, usernames}: LastUsersProps) => {
+const LastUsers = ({actor, channelId, location, postType, theme, usernames}: LastUsersProps) => {
     const [expanded, setExpanded] = useState(false);
+    const intl = useIntl();
     const style = getStyleSheet(theme);
     const textStyles = getMarkdownTextStyles(theme);
 
@@ -58,8 +60,11 @@ const LastUsers = ({actor, intl, postType, theme, usernames}: LastUsersProps) =>
         return (
             <Markdown
                 baseTextStyle={style.baseText}
+                channelId={channelId}
+                location={location}
                 textStyles={textStyles}
                 value={formattedMessage}
+                theme={theme}
             />
         );
     }
@@ -70,18 +75,18 @@ const LastUsers = ({actor, intl, postType, theme, usernames}: LastUsersProps) =>
     return (
         <Text>
             <FormattedMarkdownText
+                channelId={channelId}
                 id={'last_users_message.first'}
                 defaultMessage={'{firstUser} and '}
+                location={location}
                 values={{firstUser}}
                 baseTextStyle={style.baseText}
                 style={style.baseText}
-                textStyles={textStyles}
-                theme={theme}
             />
             <Text>{' '}</Text>
             <Text
-                style={style.linkText}
                 onPress={onPress}
+                style={style.linkText}
             >
                 <FormattedText
                     id={'last_users_message.others'}
@@ -90,16 +95,16 @@ const LastUsers = ({actor, intl, postType, theme, usernames}: LastUsersProps) =>
                 />
             </Text>
             <FormattedMarkdownText
+                channelId={channelId}
                 id={systemMessages[postType].id}
                 defaultMessage={systemMessages[postType].defaultMessage}
+                location={location}
                 values={{actor}}
                 baseTextStyle={style.baseText}
                 style={style.baseText}
-                textStyles={textStyles}
-                theme={theme}
             />
         </Text>
     );
 };
 
-export default injectIntl(LastUsers);
+export default LastUsers;

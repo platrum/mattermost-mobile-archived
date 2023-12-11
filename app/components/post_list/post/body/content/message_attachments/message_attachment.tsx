@@ -19,13 +19,12 @@ import AttachmentText from './attachment_text';
 import AttachmentThumbnail from './attachment_thumbnail';
 import AttachmentTitle from './attachment_title';
 
-import type {MessageAttachment as MessageAttachmentType} from '@mm-redux/types/message_attachments';
-import type {PostMetadata} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
-
 type Props = {
-    attachment: MessageAttachmentType;
-    metadata?: PostMetadata;
+    attachment: MessageAttachment;
+    channelId: string;
+    layoutWidth?: number;
+    location: string;
+    metadata?: PostMetadata | null;
     postId: string;
     theme: Theme;
 }
@@ -54,7 +53,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     };
 });
 
-export default function MessageAttachment({attachment, metadata, postId, theme}: Props) {
+export default function MessageAttachment({attachment, channelId, layoutWidth, location, metadata, postId, theme}: Props) {
     const style = getStyleSheet(theme);
     const blockStyles = getMarkdownBlockStyles(theme);
     const textStyles = getMarkdownTextStyles(theme);
@@ -73,12 +72,15 @@ export default function MessageAttachment({attachment, metadata, postId, theme}:
             <AttachmentPreText
                 baseTextStyle={style.message}
                 blockStyles={blockStyles}
+                channelId={channelId}
+                location={location}
                 metadata={metadata}
                 textStyles={textStyles}
+                theme={theme}
                 value={attachment.pretext}
             />
             <View style={[style.container, style.border, borderStyle]}>
-                {Boolean(attachment.author_icon && attachment.author_name) &&
+                {Boolean(attachment.author_icon || attachment.author_name) &&
                 <AttachmentAuthor
                     icon={attachment.author_icon}
                     link={attachment.author_link}
@@ -88,6 +90,8 @@ export default function MessageAttachment({attachment, metadata, postId, theme}:
                 }
                 {Boolean(attachment.title) &&
                 <AttachmentTitle
+                    channelId={channelId}
+                    location={location}
                     link={attachment.title_link}
                     theme={theme}
                     value={attachment.title}
@@ -100,6 +104,8 @@ export default function MessageAttachment({attachment, metadata, postId, theme}:
                 <AttachmentText
                     baseTextStyle={style.message}
                     blockStyles={blockStyles}
+                    channelId={channelId}
+                    location={location}
                     hasThumbnail={Boolean(attachment.thumb_url)}
                     metadata={metadata}
                     textStyles={textStyles}
@@ -111,6 +117,8 @@ export default function MessageAttachment({attachment, metadata, postId, theme}:
                 <AttachmentFields
                     baseTextStyle={style.message}
                     blockStyles={blockStyles}
+                    channelId={channelId}
+                    location={location}
                     fields={attachment.fields}
                     metadata={metadata}
                     textStyles={textStyles}
@@ -134,7 +142,9 @@ export default function MessageAttachment({attachment, metadata, postId, theme}:
                 {Boolean(metadata?.images?.[attachment.image_url]) &&
                     <AttachmentImage
                         imageUrl={attachment.image_url}
-                        imageMetadata={metadata!.images[attachment.image_url]}
+                        imageMetadata={metadata!.images![attachment.image_url]!}
+                        layoutWidth={layoutWidth}
+                        location={location}
                         postId={postId}
                         theme={theme}
                     />

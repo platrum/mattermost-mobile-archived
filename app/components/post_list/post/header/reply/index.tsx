@@ -2,22 +2,21 @@
 // See LICENSE.txt for license information.
 
 import React, {useCallback} from 'react';
-import {Text, View} from 'react-native';
+import {Text, TouchableOpacity, View} from 'react-native';
 
+import {fetchAndSwitchToThread} from '@actions/remote/thread';
 import CompassIcon from '@components/compass_icon';
-import TouchableWithFeedback from '@components/touchable_with_feedback';
-import {SEARCH} from '@constants/screen';
-import EventEmitter from '@mm-redux/utils/event_emitter';
+import {SEARCH} from '@constants/screens';
+import {useServerUrl} from '@context/server';
 import {preventDoubleTap} from '@utils/tap';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 
-import type {Post} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
+import type PostModel from '@typings/database/models/servers/post';
 
 type HeaderReplyProps = {
     commentCount: number;
     location: string;
-    post: Post;
+    post: PostModel;
     theme: Theme;
 }
 
@@ -33,7 +32,6 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
             justifyContent: 'flex-end',
             minWidth: 40,
             paddingTop: 2,
-            paddingBottom: 10,
             flex: 1,
         },
         replyText: {
@@ -47,20 +45,21 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
 
 const HeaderReply = ({commentCount, location, post, theme}: HeaderReplyProps) => {
     const style = getStyleSheet(theme);
+    const serverUrl = useServerUrl();
 
     const onPress = useCallback(preventDoubleTap(() => {
-        EventEmitter.emit('goToThread', post);
-    }), []);
+        const rootId = post.rootId || post.id;
+        fetchAndSwitchToThread(serverUrl, rootId);
+    }), [serverUrl]);
 
     return (
         <View
             testID='post_header.reply'
             style={style.replyWrapper}
         >
-            <TouchableWithFeedback
+            <TouchableOpacity
                 onPress={onPress}
                 style={style.replyIconContainer}
-                type={'opacity'}
             >
                 <CompassIcon
                     name='reply-outline'
@@ -70,12 +69,12 @@ const HeaderReply = ({commentCount, location, post, theme}: HeaderReplyProps) =>
                 {location !== SEARCH && commentCount > 0 &&
                 <Text
                     style={style.replyText}
-                    testID='post_header.reply.count'
+                    testID='post_header.reply_count'
                 >
                     {commentCount}
                 </Text>
                 }
-            </TouchableWithFeedback>
+            </TouchableOpacity>
         </View>
     );
 };

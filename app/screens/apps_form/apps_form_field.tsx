@@ -1,18 +1,17 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React from 'react';
+import React, {useCallback, useMemo} from 'react';
 import {View} from 'react-native';
 
 import AutocompleteSelector from '@components/autocomplete_selector';
-import Markdown from '@components/markdown/markdown';
-import BoolSetting from '@components/widgets/settings/bool_setting';
-import TextSetting from '@components/widgets/settings/text_setting';
-import {ViewTypes} from '@constants/index';
-import {AppFieldTypes} from '@mm-redux/constants/apps';
-import {AppField, AppFormValue, AppSelectOption} from '@mm-redux/types/apps';
-import {DialogOption} from '@mm-redux/types/integrations';
-import {Theme} from '@mm-redux/types/theme';
+import Markdown from '@components/markdown';
+import BoolSetting from '@components/settings/bool_setting';
+import TextSetting from '@components/settings/text_setting';
+import {View as ViewConstants} from '@constants';
+import {AppFieldTypes, SelectableAppFieldTypes} from '@constants/apps';
+import {useTheme} from '@context/theme';
+import {selectKeyboardType} from '@utils/integrations';
 import {getMarkdownBlockStyles, getMarkdownTextStyles} from '@utils/markdown';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 
@@ -23,16 +22,20 @@ export type Props = {
     field: AppField;
     name: string;
     errorText?: string;
-    theme: Theme;
-
     value: AppFormValue;
     onChange: (name: string, value: AppFormValue) => void;
     performLookup: (name: string, userInput: string) => Promise<AppSelectOption[]>;
 }
 
-type State = {
-    selected?: DialogOption | DialogOption[] | null;
-}
+const dialogOptionToAppSelectOption = (option: DialogOption): AppSelectOption => ({
+    label: option.text,
+    value: option.value,
+});
+
+const appSelectOptionToDialogOption = (option: AppSelectOption): DialogOption => ({
+    text: option.label,
+    value: option.value,
+});
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     return {
@@ -48,172 +51,113 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     };
 });
 
-export default class AppsFormField extends React.PureComponent<Props, State> {
-    constructor(props: Props) {
-        super(props);
-
-        let selected;
-        switch (props.field.type) {
-        case AppFieldTypes.STATIC_SELECT:
-        case AppFieldTypes.DYNAMIC_SELECT:
+function selectDataSource(fieldType: string): string {
+    switch (fieldType) {
         case AppFieldTypes.USER:
-        case AppFieldTypes.CHANNEL: {
-            const value = props.value as AppSelectOption[] | AppSelectOption | null;
-            if (value) {
-                if (Array.isArray(value)) {
-                    selected = value.map((option) => {
-                        return {
-                            text: option.label,
-                            value: option.value,
-                        };
-                    });
-                } else {
-                    selected = {
-                        text: value.label,
-                        value: value.value,
-                    };
-                }
-            }
-        }
-        }
-
-        this.state = {
-            selected,
-        };
+            return ViewConstants.DATA_SOURCE_USERS;
+        case AppFieldTypes.CHANNEL:
+            return ViewConstants.DATA_SOURCE_CHANNELS;
+        case AppFieldTypes.DYNAMIC_SELECT:
+            return ViewConstants.DATA_SOURCE_DYNAMIC;
+        default:
+            return '';
     }
+}
 
-    handleAutocompleteSelect = (selected: DialogOption) => {
-        if (!selected) {
+function AppsFormField({
+    field,
+    name,
+    errorText,
+    value,
+    onChange,
+    performLookup,
+}: Props) {
+    const theme = useTheme();
+    const style = getStyleSheet(theme);
+
+    const testID = `AppFormElement.${name}`;
+    const placeholder = field.hint || '';
+    const displayName = field.modal_label || field.label || '';
+
+    const handleChange = useCallback((newValue: string | boolean) => {
+        onChange(name, newValue);
+    }, [name]);
+
+    const handleSelect = useCallback((newValue: SelectedDialogOption) => {
+        if (!newValue) {
+            const emptyValue = field.multiselect ? [] : null;
+            onChange(name, emptyValue);
             return;
         }
-        const {
-            field,
-        } = this.props;
 
-        this.setState({selected});
-
-        const selectedOption = {
-            label: selected.text,
-            value: selected.value,
-        };
-
-        this.props.onChange(field.name, selectedOption);
-    };
-
-    handleClear = () => {
-        const {field, onChange} = this.props;
-
-        const selected = null;
-
-        this.setState({selected});
-        onChange(field.name, selected);
-    };
-
-    handleMultioptionAutocompleteSelect = (selected: DialogOption[]) => {
-        if (!selected) {
+        if (Array.isArray(newValue)) {
+            const selectedOptions = newValue.map(dialogOptionToAppSelectOption);
+            onChange(name, selectedOptions);
             return;
         }
-        const {
-            field,
-        } = this.props;
 
-        this.setState({selected});
+        onChange(name, dialogOptionToAppSelectOption(newValue));
+    }, [onChange, field, name]);
 
-        const selectedOptions = selected.map((opt) => {
-            return {
-                label: opt.text,
-                value: opt.value,
-            };
-        });
+    const getDynamicOptions = useCallback(async (userInput = ''): Promise<DialogOption[]> => {
+        const options = await performLookup(field.name, userInput);
+        return options.map(appSelectOptionToDialogOption);
+    }, [performLookup, field]);
 
-        this.props.onChange(field.name, selectedOptions);
-    };
+    const options = useMemo(() => {
+        if (field.type === AppFieldTypes.STATIC_SELECT) {
+            return field.options?.map(appSelectOptionToDialogOption);
+        }
 
-    getDynamicOptions = async (userInput = ''): Promise<{data: DialogOption[]}> => {
-        const options = await this.props.performLookup(this.props.field.name, userInput);
-        return {
-            data: options.map((option) => ({
-                text: option.label,
-                value: option.value,
-            })),
-        };
-    };
+        if (field.type === AppFieldTypes.DYNAMIC_SELECT) {
+            if (!value) {
+                return undefined;
+            }
 
-    render() {
-        const {
-            field,
-            name,
-            value,
-            onChange,
-            errorText,
-            theme,
-        } = this.props;
+            if (Array.isArray(value)) {
+                return value.map(appSelectOptionToDialogOption);
+            }
 
-        const placeholder = field.hint || '';
-        const displayName = (field.modal_label || field.label) as string;
+            const selectedOption = value as AppSelectOption;
+            return [appSelectOptionToDialogOption(selectedOption)];
+        }
 
-        switch (field.type) {
+        return undefined;
+    }, [field, value]);
+
+    const selectedValue = useMemo(() => {
+        if (!value || !SelectableAppFieldTypes.includes(field.type)) {
+            return undefined;
+        }
+
+        if (!value) {
+            return undefined;
+        }
+
+        if (Array.isArray(value)) {
+            return value.map((v) => v.value);
+        }
+
+        return value as string;
+    }, [field, value]);
+
+    switch (field.type) {
         case AppFieldTypes.TEXT: {
-            let keyboardType = 'default';
-            let multiline = false;
-            let secureTextEntry = false;
-
-            const subtype = field.subtype || 'text';
-
-            let maxLength = field.max_length;
-            if (!maxLength) {
-                if (subtype === 'textarea') {
-                    maxLength = TEXTAREA_DEFAULT_MAX_LENGTH;
-                } else {
-                    maxLength = TEXT_DEFAULT_MAX_LENGTH;
-                }
-            }
-
-            let textType = 'input';
-            if (subtype && TextSetting.validTypes.includes(subtype)) {
-                textType = subtype;
-            }
-
-            switch (textType) {
-            case 'email':
-                keyboardType = 'email-address';
-                break;
-            case 'number':
-                keyboardType = 'numeric';
-                break;
-            case 'tel':
-                keyboardType = 'phone-pad';
-                break;
-            case 'url':
-                keyboardType = 'url';
-                break;
-            case 'password':
-                secureTextEntry = true;
-                break;
-            case 'textarea':
-                multiline = true;
-                break;
-            }
-
-            const textValue = value as string;
             return (
                 <TextSetting
-                    id={name}
                     label={displayName}
-                    maxLength={maxLength}
-                    value={textValue || ''}
+                    maxLength={field.max_length || (field.subtype === 'textarea' ? TEXTAREA_DEFAULT_MAX_LENGTH : TEXT_DEFAULT_MAX_LENGTH)}
+                    value={value as string}
                     placeholder={placeholder}
                     helpText={field.description}
                     errorText={errorText}
-                    onChange={onChange}
+                    onChange={handleChange}
                     optional={!field.is_required}
-                    showRequiredAsterisk={true}
-                    resizable={false}
-                    theme={theme}
-                    multiline={multiline}
-                    keyboardType={keyboardType}
-                    secureTextEntry={secureTextEntry}
-                    disabled={field.readonly}
+                    multiline={field.subtype === 'textarea'}
+                    keyboardType={selectKeyboardType(field.subtype)}
+                    secureTextEntry={field.subtype === 'password'}
+                    disabled={Boolean(field.readonly)}
+                    testID={testID}
                 />
             );
         }
@@ -221,59 +165,38 @@ export default class AppsFormField extends React.PureComponent<Props, State> {
         case AppFieldTypes.CHANNEL:
         case AppFieldTypes.STATIC_SELECT:
         case AppFieldTypes.DYNAMIC_SELECT: {
-            let dataSource = '';
-            let options: DialogOption[] = [];
-
-            switch (field.type) {
-            case AppFieldTypes.USER:
-                dataSource = ViewTypes.DATA_SOURCE_USERS;
-                break;
-            case AppFieldTypes.CHANNEL:
-                dataSource = ViewTypes.DATA_SOURCE_CHANNELS;
-                break;
-            case AppFieldTypes.DYNAMIC_SELECT:
-                dataSource = ViewTypes.DATA_SOURCE_DYNAMIC;
-                break;
-            case AppFieldTypes.STATIC_SELECT:
-                if (field.options) {
-                    options = field.options.map((option) => ({text: option.label, value: option.value}));
-                }
-            }
-
             return (
                 <AutocompleteSelector
                     label={displayName}
-                    dataSource={dataSource}
+                    dataSource={selectDataSource(field.type)}
                     options={options}
                     optional={!field.is_required}
-                    onClear={this.handleClear}
-                    onSelected={field.multiselect ? this.handleMultioptionAutocompleteSelect : this.handleAutocompleteSelect}
-                    getDynamicOptions={this.getDynamicOptions}
+                    onSelected={handleSelect}
+                    getDynamicOptions={field.type === AppFieldTypes.DYNAMIC_SELECT ? getDynamicOptions : undefined}
                     helpText={field.description}
                     errorText={errorText}
                     placeholder={placeholder}
                     showRequiredAsterisk={true}
-                    selected={this.state.selected}
+                    selected={selectedValue}
                     roundedBorders={false}
                     disabled={field.readonly}
                     isMultiselect={field.multiselect}
+                    testID={testID}
                 />
             );
         }
         case AppFieldTypes.BOOL: {
-            const boolValue = value as boolean;
             return (
                 <BoolSetting
-                    id={name}
                     label={displayName}
-                    value={boolValue || false}
+                    value={value as boolean}
                     placeholder={placeholder}
                     helpText={field.description}
                     errorText={errorText}
                     optional={!field.is_required}
-                    theme={theme}
-                    onChange={onChange}
+                    onChange={handleChange}
                     disabled={field.readonly}
+                    testID={testID}
                 />
             );
         }
@@ -281,7 +204,6 @@ export default class AppsFormField extends React.PureComponent<Props, State> {
             if (!field.description) {
                 return null;
             }
-            const style = getStyleSheet(theme);
 
             return (
                 <View
@@ -290,6 +212,8 @@ export default class AppsFormField extends React.PureComponent<Props, State> {
                     <Markdown
                         value={field.description}
                         mentionKeys={[]}
+                        disableAtMentions={true}
+                        location=''
                         blockStyles={getMarkdownBlockStyles(theme)}
                         textStyles={getMarkdownTextStyles(theme)}
                         baseTextStyle={style.markdownFieldText}
@@ -298,8 +222,9 @@ export default class AppsFormField extends React.PureComponent<Props, State> {
                 </View>
             );
         }
-        }
-
-        return null;
     }
+
+    return null;
 }
+
+export default AppsFormField;

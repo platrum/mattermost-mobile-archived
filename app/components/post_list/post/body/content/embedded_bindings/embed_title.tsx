@@ -7,9 +7,9 @@ import {View} from 'react-native';
 import Markdown from '@components/markdown';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 
-import type {Theme} from '@mm-redux/types/theme';
-
 type Props = {
+    channelId: string;
+    location: string;
     theme: Theme;
     value: string;
 }
@@ -23,7 +23,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
         },
         title: {
             color: theme.centerChannelColor,
-            fontWeight: '600',
+            fontFamily: 'OpenSans-SemiBold',
             marginBottom: 5,
             fontSize: 14,
             lineHeight: 20,
@@ -34,16 +34,18 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     };
 });
 
-const EmbedTitle = ({theme, value}: Props) => {
+const EmbedTitle = ({channelId, location, theme, value}: Props) => {
     const style = getStyleSheet(theme);
 
     return (
         <View style={style.container}>
             <Markdown
+                channelId={channelId}
                 disableHashtags={true}
                 disableAtMentions={true}
                 disableChannelLink={true}
                 disableGallery={true}
+                location={location}
                 autolinkedUrlSchemes={[]}
                 mentionKeys={[]}
                 theme={theme}

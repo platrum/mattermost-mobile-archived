@@ -3,7 +3,7 @@
 
 import React from 'react';
 
-import {renderWithIntl} from '@test/testing_library';
+import {renderWithIntl} from '@test/intl-test-helper';
 
 import FriendlyDate from './index';
 
@@ -66,7 +66,7 @@ describe('Friendly Date', () => {
         expect(daysAgoMaxText.getByText('30 days ago')).toBeTruthy();
 
         const monthsAgo = new Date();
-        monthsAgo.setDate(monthsAgo.getDate() - 60);
+        monthsAgo.setMonth(monthsAgo.getMonth() - 2);
         const monthsAgoText = renderWithIntl(
             <FriendlyDate value={monthsAgo}/>,
         );

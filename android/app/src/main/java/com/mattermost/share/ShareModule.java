@@ -6,19 +6,21 @@ import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReactMethod;
-import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.Arguments;
+import com.mattermost.helpers.Credentials;
 import com.mattermost.rnbeta.MainApplication;
+import com.mattermost.helpers.RealPathUtil;
 
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
 import java.io.File;
 import java.util.ArrayList;
-
-import javax.annotation.Nullable;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -39,26 +41,53 @@ import okhttp3.Response;
 public class ShareModule extends ReactContextBaseJavaModule {
     private final OkHttpClient client = new OkHttpClient();
     public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+    private static ShareModule instance;
     private final MainApplication mApplication;
-    public static final String CACHE_DIR_NAME = "mmShare";
-
-    public ShareModule(MainApplication application, ReactApplicationContext reactContext) {
-        super(reactContext);
-        mApplication = application;
-    }
-
+    private ReactApplicationContext mReactContext;
     private File tempFolder;
 
+    private ShareModule(ReactApplicationContext reactContext) {
+        super(reactContext);
+        mReactContext = reactContext;
+        mApplication = (MainApplication)reactContext.getApplicationContext();
+    }
+
+    public static ShareModule getInstance(ReactApplicationContext reactContext) {
+        if (instance == null) {
+            instance = new ShareModule(reactContext);
+        } else {
+            instance.mReactContext = reactContext;
+        }
+
+        return instance;
+    }
+
+    public static ShareModule getInstance() {
+        return instance;
+    }
+
+    @NonNull
     @Override
     public String getName() {
         return "MattermostShare";
     }
 
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    public String getCurrentActivityName() {
+        Activity currentActivity = getCurrentActivity();
+        if (currentActivity != null) {
+            String activityName = currentActivity.getComponentName().getClassName();
+            String[] components = activityName.split("\\.");
+            return components[components.length - 1];
+        }
+
+        return "";
+    }
+
     @ReactMethod
     public void clear() {
         Activity currentActivity = getCurrentActivity();
-
-        if (currentActivity != null) {
+        if (currentActivity != null && this.getCurrentActivityName().equals("ShareActivity")) {
             Intent intent = currentActivity.getIntent();
             intent.setAction("");
             intent.removeExtra(Intent.EXTRA_TEXT);
@@ -70,9 +99,8 @@ public class ShareModule extends ReactContextBaseJavaModule {
     @Override
     public Map<String, Object> getConstants() {
         HashMap<String, Object> constants = new HashMap<>(1);
-        constants.put("cacheDirName", CACHE_DIR_NAME);
+        constants.put("cacheDirName", RealPathUtil.CACHE_DIR_NAME);
         constants.put("isOpened", mApplication.sharedExtensionIsOpened);
-        mApplication.sharedExtensionIsOpened = false;
         return constants;
     }
 
@@ -80,17 +108,18 @@ public class ShareModule extends ReactContextBaseJavaModule {
     public void close(ReadableMap data) {
         this.clear();
         Activity currentActivity = getCurrentActivity();
-        if (currentActivity != null) {
-            currentActivity.finishAndRemoveTask();
+        if (currentActivity == null || !this.getCurrentActivityName().equals("ShareActivity")) {
+            return;
         }
 
-        if (data != null && data.hasKey("url")) {
+        currentActivity.finishAndRemoveTask();
+        if (data != null && data.hasKey("serverUrl")) {
             ReadableArray files = data.getArray("files");
-            String serverUrl = data.getString("url");
-            String token = data.getString("token");
+            String serverUrl = data.getString("serverUrl");
+            final String token = Credentials.getCredentialsForServerSync(mReactContext, serverUrl);
             JSONObject postData = buildPostObject(data);
 
-            if (files.size() > 0) {
+            if (files != null && files.size() > 0) {
                 uploadFiles(serverUrl, token, files, postData);
             } else {
                 try {
@@ -101,97 +130,51 @@ public class ShareModule extends ReactContextBaseJavaModule {
             }
         }
 
+        mApplication.sharedExtensionIsOpened = false;
         RealPathUtil.deleteTempFiles(this.tempFolder);
     }
 
     @ReactMethod
-    public void data(Promise promise) {
+    public void getSharedData(Promise promise) {
         promise.resolve(processIntent());
     }
 
-    @ReactMethod
-    public void getFilePath(String filePath, Promise promise) {
-        Activity currentActivity = getCurrentActivity();
-        WritableMap map = Arguments.createMap();
-
-        if (currentActivity != null) {
-            Uri uri = Uri.parse(filePath);
-            String path = RealPathUtil.getRealPathFromURI(currentActivity, uri);
-            if (path != null) {
-                String text = "file://" + path;
-                map.putString("filePath", text);
-            }
-        }
-
-        promise.resolve(map);
-    }
-
     public WritableArray processIntent() {
-        WritableMap map = Arguments.createMap();
+        String type, action, extra;
         WritableArray items = Arguments.createArray();
-
-        String text = "";
-        String type = "";
-        String action = "";
-        String extra = "";
-
         Activity currentActivity = getCurrentActivity();
 
         if (currentActivity != null) {
-            this.tempFolder = new File(currentActivity.getCacheDir(), CACHE_DIR_NAME);
+            this.tempFolder = new File(currentActivity.getCacheDir(), RealPathUtil.CACHE_DIR_NAME);
             Intent intent = currentActivity.getIntent();
             action = intent.getAction();
             type = intent.getType();
             extra = intent.getStringExtra(Intent.EXTRA_TEXT);
 
-            if (type == null) {
-                type = "";
-            }
-
             if (Intent.ACTION_SEND.equals(action) && "text/plain".equals(type) && extra != null) {
-                map.putString("value", extra);
-                map.putString("type", type);
-                map.putBoolean("isString", true);
-                items.pushMap(map);
+                items.pushMap(ShareUtils.getTextItem(extra));
             } else if (Intent.ACTION_SEND.equals(action)) {
-                Uri uri = (Uri) intent.getParcelableExtra(Intent.EXTRA_STREAM);
+                if (extra != null) {
+                    items.pushMap(ShareUtils.getTextItem(extra));
+                }
+                Uri uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
                 if (uri != null) {
-                    map.putString("value", "file://" + RealPathUtil.getRealPathFromURI(currentActivity, uri));
-
-                    if (type.equals("image/*")) {
-                        type = "image/jpeg";
-                    } else if (type.equals("video/*")) {
-                        type = "video/mp4";
+                    ReadableMap fileInfo = ShareUtils.getFileItem(currentActivity, uri);
+                    if (fileInfo != null) {
+                        items.pushMap(fileInfo);
                     }
-
-                    map.putString("type", type);
-                    map.putBoolean("isString", false);
-                    items.pushMap(map);
-
-                    map = Arguments.createMap();
-                    map.putString("value", extra);
-                    map.putBoolean("isString", true);
-                    items.pushMap(map);
                 }
             } else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
-                ArrayList<Uri> uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
-                for (Uri uri : Objects.requireNonNull(uris)) {
-                    map = Arguments.createMap();
-                    map.putString("value", "file://" + RealPathUtil.getRealPathFromURI(currentActivity, uri));
-                    type = RealPathUtil.getMimeTypeFromUri(currentActivity, uri);
+                if (extra != null) {
+                    items.pushMap(ShareUtils.getTextItem(extra));
+                }
 
-                    if (type != null) {
-                        if (type.equals("image/*")) {
-                            type = "image/jpeg";
-                        } else if (type.equals("video/*")) {
-                            type = "video/mp4";
-                        }
-                    } else {
-                        type = "application/octet-stream";
+                ArrayList<Uri> uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+                for (Uri uri : uris) {
+                    ReadableMap fileInfo = ShareUtils.getFileItem(currentActivity, uri);
+                    if (fileInfo != null) {
+                        items.pushMap(fileInfo);
                     }
-                    map.putString("type", type);
-                    map.putBoolean("isString", false);
-                    items.pushMap(map);
                 }
             }
         }
@@ -202,12 +185,12 @@ public class ShareModule extends ReactContextBaseJavaModule {
     private JSONObject buildPostObject(ReadableMap data) {
         JSONObject json = new JSONObject();
         try {
-            json.put("user_id", data.getString("currentUserId"));
+            json.put("user_id", data.getString("userId"));
             if (data.hasKey("channelId")) {
                 json.put("channel_id", data.getString("channelId"));
             }
-            if (data.hasKey("value")) {
-                json.put("message", data.getString("value"));
+            if (data.hasKey("message")) {
+                json.put("message", data.getString("message"));
             }
         } catch (JSONException e) {
             e.printStackTrace();
@@ -216,13 +199,13 @@ public class ShareModule extends ReactContextBaseJavaModule {
     }
 
     private void post(String serverUrl, String token, JSONObject postData) throws IOException {
-        RequestBody body = RequestBody.create(JSON, postData.toString());
+        RequestBody body = RequestBody.create(postData.toString(), JSON);
         Request request = new Request.Builder()
                 .header("Authorization", "BEARER " + token)
                 .url(serverUrl + "/api/v4/posts")
                 .post(body)
                 .build();
-        Response response = client.newCall(request).execute();
+        client.newCall(request).execute();
     }
 
     private void uploadFiles(String serverUrl, String token, ReadableArray files, JSONObject postData) {
@@ -230,13 +213,17 @@ public class ShareModule extends ReactContextBaseJavaModule {
             MultipartBody.Builder builder = new MultipartBody.Builder()
                     .setType(MultipartBody.FORM);
 
-            for (int i = 0; i < files.size(); i++) {
+            for(int i = 0 ; i < files.size() ; i++) {
                 ReadableMap file = files.getMap(i);
-                String filePath = file.getString("fullPath").replaceFirst("file://", "");
-                File fileInfo = new File(filePath);
-                if (fileInfo.exists()) {
-                    final MediaType MEDIA_TYPE = MediaType.parse(file.getString("mimeType"));
-                    builder.addFormDataPart("files", file.getString("filename"), RequestBody.create(MEDIA_TYPE, fileInfo));
+                String mime = file.getString("type");
+                String fullPath = file.getString("value");
+                if (fullPath != null) {
+                    String filePath = fullPath.replaceFirst("file://", "");
+                    File fileInfo = new File(filePath);
+                    if (fileInfo.exists() && mime != null) {
+                        final MediaType MEDIA_TYPE = MediaType.parse(mime);
+                        builder.addFormDataPart("files", file.getString("filename"), RequestBody.create(fileInfo, MEDIA_TYPE));
+                    }
                 }
             }
 
@@ -250,11 +237,11 @@ public class ShareModule extends ReactContextBaseJavaModule {
 
             try (Response response = client.newCall(request).execute()) {
                 if (response.isSuccessful()) {
-                    String responseData = response.body().string();
+                    String responseData = Objects.requireNonNull(response.body()).string();
                     JSONObject responseJson = new JSONObject(responseData);
                     JSONArray fileInfoArray = responseJson.getJSONArray("file_infos");
                     JSONArray file_ids = new JSONArray();
-                    for (int i = 0; i < fileInfoArray.length(); i++) {
+                    for(int i = 0 ; i < fileInfoArray.length() ; i++) {
                         JSONObject fileInfo = fileInfoArray.getJSONObject(i);
                         file_ids.put(fileInfo.getString("id"));
                     }

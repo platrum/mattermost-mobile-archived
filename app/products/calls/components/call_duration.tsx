@@ -3,7 +3,9 @@
 
 import moment from 'moment-timezone';
 import React, {useEffect, useState} from 'react';
-import {Text, StyleProp, TextStyle} from 'react-native';
+import {Text, type StyleProp, type TextStyle} from 'react-native';
+
+import {toMilliseconds} from '@utils/datetime';
 
 type CallDurationProps = {
     style: StyleProp<TextStyle>;
@@ -31,19 +33,28 @@ const CallDuration = ({value, style, updateIntervalInSeconds}: CallDurationProps
         return `${minutes < 10 ? '0' + minutes : minutes}:${seconds < 10 ? '0' + seconds : seconds}`;
     };
 
-    const [formattedTime, setFormattedTime] = useState(getCallDuration());
+    const [formattedTime, setFormattedTime] = useState(() => getCallDuration());
     useEffect(() => {
         if (updateIntervalInSeconds) {
-            const interval = setInterval(() => setFormattedTime(getCallDuration()), updateIntervalInSeconds * 1000);
-            return () => {
+            const interval = setInterval(
+                () => setFormattedTime(getCallDuration()),
+                toMilliseconds({seconds: updateIntervalInSeconds}),
+            );
+            return function cleanup() {
                 clearInterval(interval);
             };
         }
-        return () => null;
+        return function cleanup() {
+            return null;
+        };
     }, [updateIntervalInSeconds]);
 
     return (
-        <Text style={style}>
+        <Text
+            style={style}
+            numberOfLines={1}
+            ellipsizeMode={'clip'}
+        >
             {formattedTime}
         </Text>
     );

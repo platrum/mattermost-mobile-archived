@@ -1,60 +1,74 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {ReactNode, useRef} from 'react';
-import {injectIntl, intlShape} from 'react-intl';
-import {Keyboard, StyleProp, View, ViewStyle} from 'react-native';
+import React, {type ReactNode, useEffect, useMemo, useRef, useState} from 'react';
+import {useIntl} from 'react-intl';
+import {Keyboard, Platform, type StyleProp, View, type ViewStyle, TouchableHighlight} from 'react-native';
 
-import {showModalOverCurrentContext} from '@actions/navigation';
-import ThreadFooter from '@components/global_threads/thread_footer';
-import SystemAvatar from '@components/post_list/system_avatar';
-import SystemHeader from '@components/post_list/system_header';
-import TouchableWithFeedback from '@components/touchable_with_feedback';
-import * as Screens from '@constants/screen';
-import {Posts} from '@mm-redux/constants';
-import {UserThread} from '@mm-redux/types/threads';
-import {UserProfile} from '@mm-redux/types/users';
-import EventEmitter from '@mm-redux/utils/event_emitter';
-import {fromAutoResponder, isPostEphemeral, isPostPendingOrFailed, isSystemMessage} from '@mm-redux/utils/post_utils';
-import CallMessage from '@mmproducts/calls/components/call_message';
+import {removePost} from '@actions/local/post';
+import {showPermalink} from '@actions/remote/permalink';
+import {fetchAndSwitchToThread} from '@actions/remote/thread';
+import CallsCustomMessage from '@calls/components/calls_custom_message';
+import {isCallsCustomMessage} from '@calls/utils';
+import SystemAvatar from '@components/system_avatar';
+import SystemHeader from '@components/system_header';
+import {POST_TIME_TO_FAIL} from '@constants/post';
+import * as Screens from '@constants/screens';
+import {useServerUrl} from '@context/server';
+import {useTheme} from '@context/theme';
+import {useIsTablet} from '@hooks/device';
+import {openAsBottomSheet} from '@screens/navigation';
+import {hasJumboEmojiOnly} from '@utils/emoji/helpers';
+import {fromAutoResponder, isFromWebhook, isPostFailed, isPostPendingOrFailed, isSystemMessage} from '@utils/post';
 import {preventDoubleTap} from '@utils/tap';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
 import Avatar from './avatar';
 import Body from './body';
+import Footer from './footer';
 import Header from './header';
 import PreHeader from './pre_header';
 import SystemMessage from './system_message';
+import UnreadDot from './unread_dot';
 
-import type {Post as PostType} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
+import type PostModel from '@typings/database/models/servers/post';
+import type ThreadModel from '@typings/database/models/servers/thread';
+import type UserModel from '@typings/database/models/servers/user';
+import type {SearchPattern} from '@typings/global/markdown';
 
 type PostProps = {
+    appsEnabled: boolean;
     canDelete: boolean;
-    collapsedThreadsEnabled: boolean;
-    enablePostUsernameOverride: boolean;
+    currentUser?: UserModel;
+    customEmojiNames: string[];
+    differentThreadSequence: boolean;
+    hasFiles: boolean;
+    hasReplies: boolean;
     highlight?: boolean;
-    highlightPinnedOrFlagged?: boolean;
-    intl: typeof intlShape;
+    highlightPinnedOrSaved?: boolean;
+    highlightReplyBar: boolean;
     isConsecutivePost?: boolean;
+    isCRTEnabled?: boolean;
+    isEphemeral: boolean;
     isFirstReply?: boolean;
-    isFlagged?: boolean;
+    isPostAcknowledgementEnabled?: boolean;
+    isSaved?: boolean;
     isLastReply?: boolean;
+    isPostAddChannelMember: boolean;
+    isPostPriorityEnabled: boolean;
     location: string;
-    post?: PostType;
-    removePost: (post: PostType) => void;
-    rootPostAuthor?: string;
+    post: PostModel;
+    rootId?: string;
+    previousPost?: PostModel;
+    hasReactions: boolean;
+    searchPatterns?: SearchPattern[];
     shouldRenderReplyButton?: boolean;
     showAddReaction?: boolean;
-    showPermalink: (intl: typeof intlShape, teamName: string, postId: string) => null;
-    skipFlaggedHeader?: boolean;
+    skipSavedHeader?: boolean;
     skipPinnedHeader?: boolean;
     style?: StyleProp<ViewStyle>;
-    teammateNameDisplay: string;
     testID?: string;
-    theme: Theme;
-    thread: UserThread;
-    threadStarter: UserProfile;
+    thread?: ThreadModel;
 };
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
@@ -63,7 +77,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
         consecutivePostContainer: {
             marginBottom: 10,
             marginRight: 10,
-            marginLeft: 47,
+            marginLeft: Platform.select({ios: 34, android: 33}),
             marginTop: 10,
         },
         container: {flexDirection: 'row'},
@@ -72,77 +86,93 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
             backgroundColor: theme.mentionHighlightBg,
             opacity: 1,
         },
-        highlightPinnedOrFlagged: {backgroundColor: changeOpacity(theme.mentionHighlightBg, 0.2)},
-        badgeContainer: {
-            position: 'absolute',
-            left: 28,
-            bottom: 9,
-        },
-        unreadDot: {
-            width: 8,
-            height: 8,
-            borderRadius: 4,
-            backgroundColor: theme.sidebarTextActiveBorder,
-            alignSelf: 'center',
-            top: -6,
-            left: 4,
+        highlightPinnedOrSaved: {
+            backgroundColor: changeOpacity(theme.mentionHighlightBg, 0.2),
         },
         pendingPost: {opacity: 0.5},
+        postContent: {paddingHorizontal: 16},
         postStyle: {
             overflow: 'hidden',
             flex: 1,
         },
-        replyBar: {
-            backgroundColor: theme.centerChannelColor,
-            opacity: 0.1,
-            marginLeft: 1,
-            marginRight: 7,
-            width: 3,
-            flexBasis: 3,
+        profilePictureContainer: {
+            marginBottom: 5,
+            marginRight: 10,
+            marginTop: 10,
         },
-        replyBarFirst: {paddingTop: 10},
-        replyBarLast: {paddingBottom: 10},
         rightColumn: {
             flex: 1,
             flexDirection: 'column',
-            marginRight: 12,
         },
         rightColumnPadding: {paddingBottom: 3},
     };
 });
 
 const Post = ({
-    canDelete, collapsedThreadsEnabled, enablePostUsernameOverride, highlight, highlightPinnedOrFlagged = true, intl, isConsecutivePost, isFirstReply, isFlagged, isLastReply,
-    location, post, removePost, rootPostAuthor, shouldRenderReplyButton, skipFlaggedHeader, skipPinnedHeader, showAddReaction = true, showPermalink, style,
-    teammateNameDisplay, testID, theme, thread, threadStarter,
+    appsEnabled, canDelete, currentUser, customEmojiNames, differentThreadSequence, hasFiles, hasReplies, highlight, highlightPinnedOrSaved = true, highlightReplyBar,
+    isCRTEnabled, isConsecutivePost, isEphemeral, isFirstReply, isSaved, isLastReply, isPostAcknowledgementEnabled, isPostAddChannelMember, isPostPriorityEnabled,
+    location, post, rootId, hasReactions, searchPatterns, shouldRenderReplyButton, skipSavedHeader, skipPinnedHeader, showAddReaction = true, style,
+    testID, thread, previousPost,
 }: PostProps) => {
     const pressDetected = useRef(false);
+    const intl = useIntl();
+    const serverUrl = useServerUrl();
+    const theme = useTheme();
+    const isTablet = useIsTablet();
     const styles = getStyleSheet(theme);
+    const isAutoResponder = fromAutoResponder(post);
+    const isPendingOrFailed = isPostPendingOrFailed(post);
+    const isFailed = isPostFailed(post);
+    const isSystemPost = isSystemMessage(post);
+    const isCallsPost = isCallsCustomMessage(post);
+    const hasBeenDeleted = (post.deleteAt !== 0);
+    const isWebHook = isFromWebhook(post);
+    const hasSameRoot = useMemo(() => {
+        if (isFirstReply) {
+            return false;
+        } else if (!post.rootId && !previousPost?.rootId && isConsecutivePost) {
+            return true;
+        } else if (post.rootId) {
+            return true;
+        }
+
+        return false;
+    }, [isConsecutivePost, post, previousPost, isFirstReply]);
+    const isJumboEmoji = useMemo(() => {
+        if (post.message.length && !(/^\s{4}/).test(post.message)) {
+            return hasJumboEmojiOnly(post.message, customEmojiNames);
+        }
+        return false;
+    }, [customEmojiNames, post.message]);
+
+    const handlePostPress = () => {
+        if ([Screens.SAVED_MESSAGES, Screens.MENTIONS, Screens.SEARCH, Screens.PINNED_MESSAGES].includes(location)) {
+            showPermalink(serverUrl, '', post.id);
+            return;
+        }
+
+        const isValidSystemMessage = isAutoResponder || !isSystemPost;
+        if (isEphemeral || hasBeenDeleted) {
+            removePost(serverUrl, post);
+        } else if (isValidSystemMessage && !hasBeenDeleted && !isPendingOrFailed) {
+            if ([Screens.CHANNEL, Screens.PERMALINK].includes(location)) {
+                const postRootId = post.rootId || post.id;
+                fetchAndSwitchToThread(serverUrl, postRootId);
+            }
+        }
+
+        setTimeout(() => {
+            pressDetected.current = false;
+        }, 300);
+    };
 
     const handlePress = preventDoubleTap(() => {
         pressDetected.current = true;
 
         if (post) {
-            if (location === Screens.THREAD) {
-                Keyboard.dismiss();
-            } else if (location === Screens.SEARCH) {
-                showPermalink(intl, '', post.id);
-                return;
-            }
+            Keyboard.dismiss();
 
-            const isValidSystemMessage = fromAutoResponder(post) || !isSystemMessage(post);
-            if (post.state !== Posts.POST_DELETED && isValidSystemMessage && !isPostPendingOrFailed(post)) {
-                if ([Screens.CHANNEL, Screens.PERMALINK].includes(location)) {
-                    EventEmitter.emit('goToThread', post);
-                }
-            } else if ((isPostEphemeral(post) || post.state === Posts.POST_DELETED)) {
-                removePost(post);
-            }
-
-            const pressTimeout = setTimeout(() => {
-                pressDetected.current = false;
-                clearTimeout(pressTimeout);
-            }, 300);
+            setTimeout(handlePostPress, 300);
         }
     });
 
@@ -151,142 +181,164 @@ const Post = ({
             return;
         }
 
-        const hasBeenDeleted = (post.delete_at !== 0 || post.state === Posts.POST_DELETED);
-        if (isSystemMessage(post) && (!canDelete || hasBeenDeleted)) {
+        if (isSystemPost && (!canDelete || hasBeenDeleted)) {
             return;
         }
 
-        if (isPostPendingOrFailed(post) || isPostEphemeral(post)) {
+        if (isPendingOrFailed || isEphemeral) {
             return;
         }
-
-        const screen = 'PostOptions';
-        const passProps = {
-            location,
-            post,
-            showAddReaction,
-        };
 
         Keyboard.dismiss();
-        const postOptionsRequest = requestAnimationFrame(() => {
-            showModalOverCurrentContext(screen, passProps);
-            cancelAnimationFrame(postOptionsRequest);
+        const passProps = {sourceScreen: location, post, showAddReaction, serverUrl};
+        const title = isTablet ? intl.formatMessage({id: 'post.options.title', defaultMessage: 'Options'}) : '';
+
+        openAsBottomSheet({
+            closeButtonId: 'close-post-options',
+            screen: Screens.POST_OPTIONS,
+            theme,
+            title,
+            props: passProps,
         });
     };
 
-    if (!post) {
-        return null;
-    }
+    const [, rerender] = useState(false);
+    useEffect(() => {
+        let t: NodeJS.Timeout|undefined;
+        if (post.pendingPostId === post.id && !isFailed) {
+            t = setTimeout(() => rerender(true), POST_TIME_TO_FAIL - (Date.now() - post.updateAt));
+        }
 
-    const highlightFlagged = isFlagged && !skipFlaggedHeader;
-    const hightlightPinned = post.is_pinned && !skipPinnedHeader;
+        return () => {
+            if (t) {
+                clearTimeout(t);
+            }
+        };
+    }, [post.id]);
+
+    const highlightSaved = isSaved && !skipSavedHeader;
+    const hightlightPinned = post.isPinned && !skipPinnedHeader;
     const itemTestID = `${testID}.${post.id}`;
-    const rightColumnStyle = [styles.rightColumn, (post.root_id && isLastReply && styles.rightColumnPadding)];
-    const pendingPostStyle: StyleProp<ViewStyle> | undefined = isPostPendingOrFailed(post) ? styles.pendingPost : undefined;
-    const isAutoResponder = fromAutoResponder(post);
+    const rightColumnStyle: StyleProp<ViewStyle> = [styles.rightColumn, (Boolean(post.rootId) && isLastReply && styles.rightColumnPadding)];
+    const pendingPostStyle: StyleProp<ViewStyle> | undefined = isPendingOrFailed ? styles.pendingPost : undefined;
 
     let highlightedStyle: StyleProp<ViewStyle>;
     if (highlight) {
         highlightedStyle = styles.highlight;
-    } else if ((highlightFlagged || hightlightPinned) && highlightPinnedOrFlagged) {
-        highlightedStyle = styles.highlightPinnedOrFlagged;
+    } else if ((highlightSaved || hightlightPinned) && highlightPinnedOrSaved) {
+        highlightedStyle = styles.highlightPinnedOrSaved;
     }
 
     let header: ReactNode;
     let postAvatar: ReactNode;
     let consecutiveStyle: StyleProp<ViewStyle>;
-    if (isConsecutivePost) {
-        consecutiveStyle = styles.consective;
+
+    // If the post is a priority post:
+    // 1. Show the priority label in channel screen
+    // 2. Show the priority label in thread screen for the root post
+    const showPostPriority = Boolean(isPostPriorityEnabled && post.metadata?.priority?.priority) && (location !== Screens.THREAD || !post.rootId);
+
+    const sameSequence = hasReplies ? (hasReplies && post.rootId) : !post.rootId;
+    if (!showPostPriority && hasSameRoot && isConsecutivePost && sameSequence) {
+        consecutiveStyle = styles.consecutive;
         postAvatar = <View style={styles.consecutivePostContainer}/>;
     } else {
-        postAvatar = isAutoResponder ? (
-            <SystemAvatar theme={theme}/>
-        ) : (
-            <Avatar
-                pendingPostStyle={pendingPostStyle}
-                post={post}
-                theme={theme}
-            />
+        postAvatar = (
+            <View style={[styles.profilePictureContainer, pendingPostStyle]}>
+                {(isAutoResponder || isSystemPost) ? (
+                    <SystemAvatar theme={theme}/>
+                ) : (
+                    <Avatar
+                        isAutoReponse={isAutoResponder}
+                        location={location}
+                        post={post}
+                    />
+                )}
+            </View>
         );
 
-        if (isSystemMessage(post) && !isAutoResponder) {
+        if (isSystemPost && !isAutoResponder) {
             header = (
                 <SystemHeader
-                    createAt={post.create_at}
+                    createAt={post.createAt}
                     theme={theme}
                 />
             );
         } else {
             header = (
                 <Header
-                    collapsedThreadsEnabled={collapsedThreadsEnabled}
-                    enablePostUsernameOverride={enablePostUsernameOverride}
+                    currentUser={currentUser}
+                    differentThreadSequence={differentThreadSequence}
+                    isAutoResponse={isAutoResponder}
+                    isCRTEnabled={isCRTEnabled}
+                    isEphemeral={isEphemeral}
+                    isPendingOrFailed={isPendingOrFailed}
+                    isSystemPost={isSystemPost}
+                    isWebHook={isWebHook}
                     location={location}
                     post={post}
-                    rootPostAuthor={rootPostAuthor}
+                    showPostPriority={showPostPriority}
                     shouldRenderReplyButton={shouldRenderReplyButton}
-                    teammateNameDisplay={teammateNameDisplay}
-                    theme={theme}
                 />
             );
         }
     }
 
     let body;
-    if (isSystemMessage(post) && !isPostEphemeral(post) && !isAutoResponder) {
+    if (isSystemPost && !isEphemeral && !isAutoResponder) {
         body = (
             <SystemMessage
+                location={location}
                 post={post}
-                theme={theme}
             />
         );
-    } else if (post.type === Posts.POST_TYPES.CUSTOM_CALLS) {
+    } else if (isCallsPost && !hasBeenDeleted) {
         body = (
-            <CallMessage
+            <CallsCustomMessage
+                serverUrl={serverUrl}
                 post={post}
-                theme={theme}
             />
         );
     } else {
         body = (
             <Body
+                appsEnabled={appsEnabled}
+                hasFiles={hasFiles}
+                hasReactions={hasReactions}
                 highlight={Boolean(highlightedStyle)}
+                highlightReplyBar={highlightReplyBar}
+                isCRTEnabled={isCRTEnabled}
+                isEphemeral={isEphemeral}
                 isFirstReply={isFirstReply}
+                isJumboEmoji={isJumboEmoji}
                 isLastReply={isLastReply}
+                isPendingOrFailed={isPendingOrFailed}
+                isPostAcknowledgementEnabled={isPostAcknowledgementEnabled}
+                isPostAddChannelMember={isPostAddChannelMember}
                 location={location}
                 post={post}
-                rootPostAuthor={rootPostAuthor}
+                searchPatterns={searchPatterns}
                 showAddReaction={showAddReaction}
                 theme={theme}
             />
         );
     }
 
+    let unreadDot;
     let footer;
-    if (
-        collapsedThreadsEnabled &&
-        Boolean(thread) &&
-        post.state !== Posts.POST_DELETED &&
-        (thread?.is_following || thread?.participants?.length)
-    ) {
-        footer = (
-            <ThreadFooter
-                testID={`${itemTestID}.footer`}
-                theme={theme}
-                thread={thread}
-                threadStarter={threadStarter}
-                location={Screens.CHANNEL}
-            />
-        );
-    }
-
-    let badge;
-    if (thread?.unread_mentions || thread?.unread_replies) {
-        if (thread.unread_replies && thread.unread_replies > 0) {
-            badge = (
-                <View style={styles.badgeContainer}>
-                    <View style={styles.unreadDot}/>
-                </View>
+    if (isCRTEnabled && thread && location !== Screens.THREAD && !(rootId && location === Screens.PERMALINK)) {
+        if (thread.replyCount > 0 || thread.isFollowing) {
+            footer = (
+                <Footer
+                    channelId={post.channelId}
+                    location={location}
+                    thread={thread}
+                />
+            );
+        }
+        if (thread.unreadMentions || thread.unreadReplies) {
+            unreadDot = (
+                <UnreadDot/>
             );
         }
     }
@@ -296,22 +348,21 @@ const Post = ({
             testID={testID}
             style={[styles.postStyle, style, highlightedStyle]}
         >
-            <TouchableWithFeedback
+            <TouchableHighlight
                 testID={itemTestID}
                 onPress={handlePress}
                 onLongPress={showPostOptions}
                 delayLongPress={200}
                 underlayColor={changeOpacity(theme.centerChannelColor, 0.1)}
-                cancelTouchOnPanning={true}
+                style={styles.postContent}
             >
                 <>
                     <PreHeader
                         isConsecutivePost={isConsecutivePost}
-                        isFlagged={isFlagged}
-                        isPinned={post.is_pinned}
-                        skipFlaggedHeader={skipFlaggedHeader}
+                        isSaved={isSaved}
+                        isPinned={post.isPinned}
+                        skipSavedHeader={skipSavedHeader}
                         skipPinnedHeader={skipPinnedHeader}
-                        theme={theme}
                     />
                     <View style={[styles.container, consecutiveStyle]}>
                         {postAvatar}
@@ -320,12 +371,12 @@ const Post = ({
                             {body}
                             {footer}
                         </View>
-                        {badge}
+                        {unreadDot}
                     </View>
                 </>
-            </TouchableWithFeedback>
+            </TouchableHighlight>
         </View>
     );
 };
 
-export default injectIntl(Post);
+export default Post;

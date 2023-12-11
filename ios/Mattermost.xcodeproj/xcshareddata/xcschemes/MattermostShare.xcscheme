@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1250"
+   LastUpgradeVersion = "1400"
    wasCreatedForAppExtension = "YES"
    version = "2.0">
    <BuildAction
@@ -15,10 +15,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "7FABE03522137F2900D0F595"
-               BuildableName = "libUploadAttachments.a"
-               BlueprintName = "UploadAttachments"
-               ReferencedContainer = "container:UploadAttachments/UploadAttachments.xcodeproj">
+               BlueprintIdentifier = "7FC5698528563FDB000B0905"
+               BuildableName = "MattermostShare.appex"
+               BlueprintName = "MattermostShare"
+               ReferencedContainer = "container:Mattermost.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
          <BuildActionEntry
@@ -29,9 +29,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "7F240A18220D3A2300637665"
-               BuildableName = "MattermostShare.appex"
-               BlueprintName = "MattermostShare"
+               BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
+               BuildableName = "Mattermost.app"
+               BlueprintName = "Mattermost"
                ReferencedContainer = "container:Mattermost.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -42,15 +42,6 @@
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES">
-      <MacroExpansion>
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "7F240A18220D3A2300637665"
-            BuildableName = "MattermostShare.appex"
-            BlueprintName = "MattermostShare"
-            ReferencedContainer = "container:Mattermost.xcodeproj">
-         </BuildableReference>
-      </MacroExpansion>
       <Testables>
       </Testables>
    </TestAction>
@@ -66,20 +57,16 @@
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES"
       launchAutomaticallySubstyle = "2">
-      <RemoteRunnable
-         runnableDebuggingMode = "1"
-         BundleIdentifier = "com.apple.mobileslideshow"
-         RemotePath = "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/Library/CoreSimulator/Profiles/Runtimes/iOS.simruntime/Contents/Resources/RuntimeRoot/Applications/MobileSlideShow.app">
-      </RemoteRunnable>
-      <MacroExpansion>
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "7F240A18220D3A2300637665"
-            BuildableName = "MattermostShare.appex"
-            BlueprintName = "MattermostShare"
+            BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
+            BuildableName = "Mattermost.app"
+            BlueprintName = "Mattermost"
             ReferencedContainer = "container:Mattermost.xcodeproj">
          </BuildableReference>
-      </MacroExpansion>
+      </BuildableProductRunnable>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -88,15 +75,16 @@
       useCustomWorkingDirectory = "NO"
       debugDocumentVersioning = "YES"
       launchAutomaticallySubstyle = "2">
-      <MacroExpansion>
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "7F240A18220D3A2300637665"
-            BuildableName = "MattermostShare.appex"
-            BlueprintName = "MattermostShare"
+            BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
+            BuildableName = "Mattermost.app"
+            BlueprintName = "Mattermost"
             ReferencedContainer = "container:Mattermost.xcodeproj">
          </BuildableReference>
-      </MacroExpansion>
+      </BuildableProductRunnable>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">

@@ -1,55 +1,49 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {Config} from '@mm-redux/types/config';
-import {GlobalDataRetentionPolicy, ChannelDataRetentionPolicy, TeamDataRetentionPolicy} from '@mm-redux/types/data_retention';
-import {Role} from '@mm-redux/types/roles';
-import {Dictionary} from '@mm-redux/types/utilities';
-import {buildQueryString} from '@mm-redux/utils/helpers';
+import {buildQueryString} from '@utils/helpers';
 
 import {PER_PAGE_DEFAULT} from './constants';
 import ClientError from './error';
 
-export interface ClientGeneralMix {
-    getOpenGraphMetadata: (url: string) => Promise<any>;
-    ping: () => Promise<any>;
-    logClientError: (message: string, level?: string) => Promise<any>;
-    getClientConfigOld: () => Promise<Config>;
-    getClientLicenseOld: () => Promise<any>;
-    getTimezones: () => Promise<string[]>;
-    getGlobalDataRetentionPolicy: () => Promise<GlobalDataRetentionPolicy[]>;
-    getTeamDataRetentionPolicies: (userId: string, page?: number, perPage?: number) => Promise<{
-        policies: TeamDataRetentionPolicy[];
-        total_count: number;
-    }>;
-    getChannelDataRetentionPolicies: (userId: string, page?: number, perPage?: number) => Promise<{
-        policies: ChannelDataRetentionPolicy[];
-        total_count: number;
-    }>;
-    getRolesByNames: (rolesNames: string[]) => Promise<Role[]>;
-    getRedirectLocation: (urlParam: string) => Promise<Dictionary<string>>;
+import type ClientBase from './base';
+
+type PoliciesResponse<T> = {
+    policies: T[];
+    total_count: number;
 }
 
-const ClientGeneral = (superclass: any) => class extends superclass {
-    getOpenGraphMetadata = async (url: string) => {
-        return this.doFetch(
-            `${this.getBaseRoute()}/opengraph`,
-            {method: 'post', body: JSON.stringify({url})},
-        );
-    };
+export interface ClientGeneralMix {
+    ping: (deviceId?: string, timeoutInterval?: number) => Promise<any>;
+    logClientError: (message: string, level?: string) => Promise<any>;
+    getClientConfigOld: () => Promise<ClientConfig>;
+    getClientLicenseOld: () => Promise<ClientLicense>;
+    getTimezones: () => Promise<string[]>;
+    getGlobalDataRetentionPolicy: () => Promise<GlobalDataRetentionPolicy>;
+    getTeamDataRetentionPolicies: (userId: string, page?: number, perPage?: number) => Promise<PoliciesResponse<TeamDataRetentionPolicy>>;
+    getChannelDataRetentionPolicies: (userId: string, page?: number, perPage?: number) => Promise<PoliciesResponse<ChannelDataRetentionPolicy>>;
+    getRolesByNames: (rolesNames: string[]) => Promise<Role[]>;
+    getRedirectLocation: (urlParam: string) => Promise<Record<string, string>>;
+}
 
-    ping = async () => {
+const ClientGeneral = <TBase extends Constructor<ClientBase>>(superclass: TBase) => class extends superclass {
+    ping = async (deviceId?: string, timeoutInterval?: number) => {
+        let url = `${this.urlVersion}/system/ping?time=${Date.now()}`;
+        if (deviceId) {
+            url = `${url}&device_id=${deviceId}`;
+        }
         return this.doFetch(
-            `${this.getBaseRoute()}/system/ping?time=${Date.now()}`,
-            {method: 'get'},
+            url,
+            {method: 'get', timeoutInterval},
+            false,
         );
     };
 
     logClientError = async (message: string, level = 'ERROR') => {
-        const url = `${this.getBaseRoute()}/logs`;
+        const url = `${this.urlVersion}/logs`;
 
         if (!this.enableLogging) {
-            throw new ClientError(this.getUrl(), {
+            throw new ClientError(this.apiClient.baseUrl, {
                 message: 'Logging disabled.',
                 url,
             });
@@ -57,20 +51,20 @@ const ClientGeneral = (superclass: any) => class extends superclass {
 
         return this.doFetch(
             url,
-            {method: 'post', body: JSON.stringify({message, level})},
+            {method: 'post', body: {message, level}},
         );
     };
 
     getClientConfigOld = async () => {
         return this.doFetch(
-            `${this.getBaseRoute()}/config/client?format=old`,
+            `${this.urlVersion}/config/client?format=old`,
             {method: 'get'},
         );
     };
 
     getClientLicenseOld = async () => {
         return this.doFetch(
-            `${this.getBaseRoute()}/license/client?format=old`,
+            `${this.urlVersion}/license/client?format=old`,
             {method: 'get'},
         );
     };
@@ -84,21 +78,21 @@ const ClientGeneral = (superclass: any) => class extends superclass {
 
     getGlobalDataRetentionPolicy = () => {
         return this.doFetch(
-            `${this.getDataRetentionRoute()}/policy`,
+            `${this.getGlobalDataRetentionRoute()}/policy`,
             {method: 'get'},
         );
     };
 
     getTeamDataRetentionPolicies = (userId: string, page = 0, perPage = PER_PAGE_DEFAULT) => {
         return this.doFetch(
-            `${this.getBaseRoute()}/users/${userId}/data_retention/team_policies${buildQueryString({page, per_page: perPage})}`,
+            `${this.getGranularDataRetentionRoute(userId)}/team_policies${buildQueryString({page, per_page: perPage})}`,
             {method: 'get'},
         );
     };
 
     getChannelDataRetentionPolicies = (userId: string, page = 0, perPage = PER_PAGE_DEFAULT) => {
         return this.doFetch(
-            `${this.getBaseRoute()}/users/${userId}/data_retention/channel_policies${buildQueryString({page, per_page: perPage})}`,
+            `${this.getGranularDataRetentionRoute(userId)}/channel_policies${buildQueryString({page, per_page: perPage})}`,
             {method: 'get'},
         );
     };
@@ -106,7 +100,7 @@ const ClientGeneral = (superclass: any) => class extends superclass {
     getRolesByNames = async (rolesNames: string[]) => {
         return this.doFetch(
             `${this.getRolesRoute()}/names`,
-            {method: 'post', body: JSON.stringify(rolesNames)},
+            {method: 'post', body: rolesNames},
         );
     };
 

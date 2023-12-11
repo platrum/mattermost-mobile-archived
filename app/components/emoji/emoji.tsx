@@ -1,63 +1,67 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {withDatabase, withObservables} from '@nozbe/watermelondb/react';
 import React from 'react';
 import {
+    Image,
     Platform,
-    StyleProp,
     StyleSheet,
     Text,
-    TextStyle,
 } from 'react-native';
-import FastImage, {ImageStyle} from 'react-native-fast-image';
+import FastImage from 'react-native-fast-image';
+import {of as of$} from 'rxjs';
+import {switchMap} from 'rxjs/operators';
+
+import {fetchCustomEmojiInBatch} from '@actions/remote/custom_emoji';
+import {useServerUrl} from '@context/server';
+import NetworkManager from '@managers/network_manager';
+import {queryCustomEmojisByName} from '@queries/servers/custom_emoji';
+import {observeConfigBooleanValue} from '@queries/servers/system';
+import {EmojiIndicesByAlias, Emojis} from '@utils/emoji';
+import {isUnicodeEmoji} from '@utils/emoji/helpers';
+
+import type {EmojiProps} from '@typings/components/emoji';
+import type {WithDatabaseArgs} from '@typings/database/database';
 
 const assetImages = new Map([['mattermost.png', require('@assets/images/emojis/mattermost.png')]]);
 
-type Props = {
-
-    /*
-         * Emoji text name.
-         */
-    emojiName: string;
-
-    /*
-     * Image URL for the emoji.
-     */
-    imageUrl: string;
-
-    /*
-     * asset name in case it is bundled with the app
-     */
-    assetImage: string;
-
-    /*
-     * Set if this is a custom emoji.
-     */
-    isCustomEmoji: boolean;
-
-    /*
-     * Set to render only the text and no image.
-     */
-    displayTextOnly?: boolean;
-    literal?: string;
-    size?: number;
-    textStyle?: StyleProp<TextStyle>;
-    unicode?: string;
-    customEmojiStyle?: StyleProp<ImageStyle>;
-    testID?: string;
-}
-
-const Emoji: React.FC<Props> = (props: Props) => {
+const Emoji = (props: EmojiProps) => {
     const {
-        customEmojiStyle,
+        customEmojis,
+        imageStyle,
         displayTextOnly,
-        imageUrl,
-        assetImage,
-        literal,
-        unicode,
+        emojiName,
+        literal = '',
         testID,
         textStyle,
+        commonStyle,
     } = props;
+    const serverUrl = useServerUrl();
+    let assetImage = '';
+    let unicode;
+    let imageUrl = '';
+    const name = emojiName.trim();
+    if (EmojiIndicesByAlias.has(name)) {
+        const emoji = Emojis[EmojiIndicesByAlias.get(name)!];
+        if (emoji.category === 'custom') {
+            assetImage = emoji.fileName;
+        } else {
+            unicode = emoji.image;
+        }
+    } else {
+        const custom = customEmojis.find((ce) => ce.name === name);
+        if (custom) {
+            try {
+                const client = NetworkManager.getClient(serverUrl);
+                imageUrl = client.getCustomEmojiImageUrl(custom.id);
+            } catch {
+                // do nothing
+            }
+        } else if (name && (name.length > 1 || !isUnicodeEmoji(name))) {
+            fetchCustomEmojiInBatch(serverUrl, name);
+        }
+    }
 
     let size = props.size;
     let fontSize = size;
@@ -67,10 +71,10 @@ const Emoji: React.FC<Props> = (props: Props) => {
         size = fontSize;
     }
 
-    if (displayTextOnly) {
+    if (displayTextOnly || (!imageUrl && !assetImage && !unicode)) {
         return (
             <Text
-                style={textStyle}
+                style={[commonStyle, textStyle]}
                 testID={testID}
             >
                 {literal}
@@ -82,13 +86,13 @@ const Emoji: React.FC<Props> = (props: Props) => {
 
     if (unicode && !imageUrl) {
         const codeArray = unicode.split('-');
-        const code = codeArray.reduce((acc, c) => {
+        const code = codeArray.reduce((acc: string, c: string) => {
             return acc + String.fromCodePoint(parseInt(c, 16));
         }, '');
 
         return (
             <Text
-                style={[textStyle, {fontSize: size}]}
+                style={[commonStyle, textStyle, {fontSize: size, color: '#000'}]}
                 testID={testID}
             >
                 {code}
@@ -104,11 +108,11 @@ const Emoji: React.FC<Props> = (props: Props) => {
             return null;
         }
         return (
-            <FastImage
+            <Image
                 key={key}
                 source={image}
-                style={[customEmojiStyle, {width, height}]}
-                resizeMode={FastImage.resizeMode.contain}
+                style={[commonStyle, imageStyle, {width, height}]}
+                resizeMode={'contain'}
                 testID={testID}
             />
         );
@@ -125,7 +129,7 @@ const Emoji: React.FC<Props> = (props: Props) => {
     return (
         <FastImage
             key={key}
-            style={[customEmojiStyle, {width, height}]}
+            style={[commonStyle, imageStyle, {width, height}]}
             source={{uri: imageUrl}}
             resizeMode={FastImage.resizeMode.contain}
             testID={testID}
@@ -133,10 +137,17 @@ const Emoji: React.FC<Props> = (props: Props) => {
     );
 };
 
-Emoji.defaultProps = {
-    literal: '',
-    imageUrl: '',
-    isCustomEmoji: false,
-};
+const withCustomEmojis = withObservables(['emojiName'], ({database, emojiName}: WithDatabaseArgs & {emojiName: string}) => {
+    const hasEmojiBuiltIn = EmojiIndicesByAlias.has(emojiName);
 
-export default Emoji;
+    const displayTextOnly = hasEmojiBuiltIn ? of$(false) : observeConfigBooleanValue(database, 'EnableCustomEmoji').pipe(
+        switchMap((value) => of$(!value)),
+    );
+
+    return {
+        displayTextOnly,
+        customEmojis: hasEmojiBuiltIn ? of$([]) : queryCustomEmojisByName(database, [emojiName]).observe(),
+    };
+});
+
+export default withDatabase(withCustomEmojis(Emoji));

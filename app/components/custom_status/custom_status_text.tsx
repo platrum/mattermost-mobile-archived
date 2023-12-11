@@ -2,32 +2,18 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {Text, TextStyle} from 'react-native';
+import {Text, type TextStyle} from 'react-native';
 
-import FormattedText from '@components/formatted_text';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
-import type {Theme} from '@mm-redux/types/theme';
-
 interface ComponentProps {
-    text: string | typeof FormattedText;
+    text: string | React.ReactNode;
     theme: Theme;
     textStyle?: TextStyle;
     ellipsizeMode?: 'head' | 'middle' | 'tail' | 'clip';
     numberOfLines?: number;
+    testID?: string;
 }
-
-const CustomStatusText = ({text, theme, textStyle, ellipsizeMode, numberOfLines}: ComponentProps) => (
-    <Text
-        style={[getStyleSheet(theme).label, textStyle]}
-        ellipsizeMode={ellipsizeMode}
-        numberOfLines={numberOfLines}
-    >
-        {text}
-    </Text>
-);
-
-export default CustomStatusText;
 
 const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     return {
@@ -39,3 +25,16 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
         },
     };
 });
+
+const CustomStatusText = ({text, theme, textStyle, ellipsizeMode, numberOfLines, testID}: ComponentProps) => (
+    <Text
+        style={[getStyleSheet(theme).label, textStyle]}
+        ellipsizeMode={ellipsizeMode}
+        numberOfLines={numberOfLines}
+        testID={testID}
+    >
+        {text}
+    </Text>
+);
+
+export default CustomStatusText;

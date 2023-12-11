@@ -7,6 +7,11 @@ mattermost.keystore
 tmp/
 .env
 env.d.ts
+*.apk
+*.aab
+*.ipa
+
+*/**/compass-icons.ttf
 
 # OSX
 #
@@ -28,13 +33,11 @@ xcuserdata
 *.moved-aside
 DerivedData
 *.hmap
-*.ipa
-*.apk
-*.aab
 *.xcuserstate
 project.xcworkspace
 ios/Pods
 .podinstall
+ios/.xcode.env.local
 
 # Android/IntelliJ
 #
@@ -42,6 +45,10 @@ ios/Pods
 .gradle
 local.properties
 *.iml
+*.hprof
+.cxx/
+*.keystore
+!debug.keystore
 android/app/bin
 android/app/build
 android/build
@@ -56,12 +63,6 @@ npm-debug.log
 .npminstall
 yarn-error.log
 .yarninstall
-
-# BUCK
-buck-out/
-\.buckd/
-android/app/libs
-*.keystore
 
 # Vim
 [._]*.s[a-w][a-z]
@@ -79,11 +80,11 @@ tags
 # For more information about the recommended setup visit:
 # https://docs.fastlane.tools/best-practices/source-control/
 
-*/fastlane/report.xml
-*/fastlane/Preview.html
-*/fastlane/screenshots
-fastlane/.env
-fastlane/report.xml
+**/fastlane/report.xml
+**/fastlane/Preview.html
+**/fastlane/screenshots
+**/fastlane/test_output
+**/fastlane/.env
 
 # Sentry
 android/sentry.properties
@@ -98,15 +99,19 @@ coverage
 mattermost-license.txt
 *.mattermost-license
 detox/artifacts
-detox/detox_pixel_4_xl_api_30
+detox/detox_pixel_*
 
 # Bundle artifact
 *.jsbundle
+.bundle
 
 #editor-settings
 .vscode
 .scannerwork
+launch.json
 
 # Notice.txt generation
 !build/notice-file
 
+# Temporary files created by Metro to check the health of the file watcher
+.metro-health-check*

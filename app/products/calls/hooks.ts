@@ -1,80 +1,157 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {useEffect, useState} from 'react';
-import {Alert} from 'react-native';
-import {useDispatch, useSelector} from 'react-redux';
-
-import {Client4} from '@client/rest';
-import {General} from '@mm-redux/constants';
-import {getCurrentChannel} from '@mm-redux/selectors/entities/channels';
-import {getCurrentUserRoles} from '@mm-redux/selectors/entities/users';
-import {isAdmin as checkIsAdmin, isChannelAdmin as checkIsChannelAdmin} from '@mm-redux/utils/user_utils';
-import {loadConfig} from '@mmproducts/calls/store/actions/calls';
-import {
-    getConfig,
-    isCallsExplicitlyDisabled,
-    isCallsExplicitlyEnabled,
-    isCallsPluginEnabled,
-} from '@mmproducts/calls/store/selectors/calls';
-
 // Check if calls is enabled. If it is, then run fn; if it isn't, show an alert and set
 // msgPostfix to ' (Not Available)'.
-export const useTryCallsFunction = (fn: (channelId: string) => void) => {
-    const [msgPostfix, setMsgPostfix] = useState('');
+import {useCallback, useEffect, useState} from 'react';
+import {useIntl} from 'react-intl';
+import {Alert, Platform} from 'react-native';
+import Permissions from 'react-native-permissions';
 
-    const tryFn = async (channelId: string) => {
-        if (await Client4.getEnabled()) {
-            setMsgPostfix('');
-            fn(channelId);
+import {initializeVoiceTrack} from '@calls/actions/calls';
+import {
+    setMicPermissionsGranted,
+    useCallsState,
+    useChannelsWithCalls,
+    useCurrentCall,
+    useGlobalCallsState,
+    useIncomingCalls,
+} from '@calls/state';
+import {errorAlert} from '@calls/utils';
+import {
+    CALL_ERROR_BAR_HEIGHT,
+    CALL_NOTIFICATION_BAR_HEIGHT,
+    CURRENT_CALL_BAR_HEIGHT,
+    JOIN_CALL_BAR_HEIGHT,
+} from '@constants/view';
+import {useServerUrl} from '@context/server';
+import {useAppState} from '@hooks/device';
+import NetworkManager from '@managers/network_manager';
+import {queryAllActiveServers} from '@queries/app/servers';
+import {getFullErrorMessage} from '@utils/errors';
+
+import type {Client} from '@client/rest';
+
+export const useTryCallsFunction = (fn: () => void) => {
+    const intl = useIntl();
+    const serverUrl = useServerUrl();
+    const [msgPostfix, setMsgPostfix] = useState('');
+    const [clientError, setClientError] = useState('');
+
+    let client: Client | undefined;
+    if (!clientError) {
+        try {
+            client = NetworkManager.getClient(serverUrl);
+        } catch (error) {
+            setClientError(getFullErrorMessage(error));
+        }
+    }
+    const tryFn = useCallback(async () => {
+        let enabled;
+        try {
+            enabled = await client?.getEnabled();
+        } catch (error) {
+            errorAlert(getFullErrorMessage(error), intl);
             return;
         }
 
+        if (enabled) {
+            setMsgPostfix('');
+            fn();
+            return;
+        }
+
+        if (clientError) {
+            errorAlert(clientError, intl);
+            return;
+        }
+
+        const title = intl.formatMessage({
+            id: 'mobile.calls_not_available_title',
+            defaultMessage: 'Calls is not enabled',
+        });
+        const message = intl.formatMessage({
+            id: 'mobile.calls_not_available_msg',
+            defaultMessage: 'Please contact your System Admin to enable the feature.',
+        });
+        const ok = intl.formatMessage({
+            id: 'mobile.calls_ok',
+            defaultMessage: 'OK',
+        });
+        const notAvailable = intl.formatMessage({
+            id: 'mobile.calls_not_available_option',
+            defaultMessage: '(Not available)',
+        });
+
         Alert.alert(
-            'Calls is not enabled',
-            'Please contact your system administrator to enable the feature.',
+            title,
+            message,
             [
                 {
-                    text: 'OK',
+                    text: ok,
                     style: 'cancel',
                 },
             ],
         );
-        setMsgPostfix(' (Not Available)');
-    };
+        setMsgPostfix(` ${notAvailable}`);
+    }, [client, fn, clientError, intl]);
 
-    return [tryFn, msgPostfix];
+    return [tryFn, msgPostfix] as [() => Promise<void>, string];
 };
 
-export const useCallsChannelSettings = () => {
-    const dispatch = useDispatch();
-    const config = useSelector(getConfig);
-    const currentChannel = useSelector(getCurrentChannel);
-    const pluginEnabled = useSelector(isCallsPluginEnabled);
-    const explicitlyDisabled = useSelector(isCallsExplicitlyDisabled);
-    const explicitlyEnabled = useSelector(isCallsExplicitlyEnabled);
-    const roles = useSelector(getCurrentUserRoles);
+const micPermission = Platform.select({
+    ios: Permissions.PERMISSIONS.IOS.MICROPHONE,
+    default: Permissions.PERMISSIONS.ANDROID.RECORD_AUDIO,
+});
+
+export const usePermissionsChecker = (micPermissionsGranted: boolean) => {
+    const appState = useAppState();
 
     useEffect(() => {
-        if (pluginEnabled) {
-            dispatch(loadConfig());
+        const asyncFn = async () => {
+            if (appState === 'active') {
+                const hasPermission = (await Permissions.check(micPermission)) === Permissions.RESULTS.GRANTED;
+                if (hasPermission) {
+                    initializeVoiceTrack();
+                    setMicPermissionsGranted(hasPermission);
+                }
+            }
+        };
+        if (!micPermissionsGranted) {
+            asyncFn();
         }
+    }, [appState]);
+};
+
+export const useCallsAdjustment = (serverUrl: string, channelId: string): number => {
+    const incomingCalls = useIncomingCalls().incomingCalls;
+    const channelsWithCalls = useChannelsWithCalls(serverUrl);
+    const callsState = useCallsState(serverUrl);
+    const globalCallsState = useGlobalCallsState();
+    const currentCall = useCurrentCall();
+    const [numServers, setNumServers] = useState(1);
+    const dismissed = Boolean(callsState.calls[channelId]?.dismissed[callsState.myUserId]);
+    const inCurrentCall = currentCall?.id === channelId;
+    const joinCallBannerVisible = Boolean(channelsWithCalls[channelId]) && !dismissed && !inCurrentCall;
+
+    useEffect(() => {
+        const getNumServers = async () => {
+            const query = await queryAllActiveServers()?.fetch();
+            setNumServers(query?.length || 0);
+        };
+        getNumServers();
     }, []);
 
-    const isDirectMessage = currentChannel.type === General.DM_CHANNEL;
-    const isGroupMessage = currentChannel.type === General.GM_CHANNEL;
-    const isAdmin = checkIsAdmin(roles);
-    const isChannelAdmin = isAdmin || checkIsChannelAdmin(roles);
-
-    const enabled = pluginEnabled && (explicitlyEnabled || (!explicitlyDisabled && config.DefaultEnabled));
-    let canEnableDisable;
-    if (!pluginEnabled) {
-        canEnableDisable = false;
-    } else if (config.AllowEnableCalls) {
-        canEnableDisable = isDirectMessage || isGroupMessage || isChannelAdmin;
-    } else {
-        canEnableDisable = isAdmin;
-    }
-
-    return [enabled, canEnableDisable];
+    // Do we have calls banners?
+    const currentCallBarVisible = Boolean(currentCall);
+    const micPermissionsError = !globalCallsState.micPermissionsGranted && (currentCall && !currentCall.micPermissionsErrorDismissed);
+    const callQualityAlert = Boolean(currentCall?.callQualityAlert);
+    const incomingCallsShowing = incomingCalls.filter((ic) => ic.channelID !== channelId);
+    const notificationBarHeight = CALL_NOTIFICATION_BAR_HEIGHT + (numServers > 1 ? 8 : 0);
+    const callsIncomingAdjustment = (incomingCallsShowing.length * notificationBarHeight) + (incomingCallsShowing.length * 8);
+    return (currentCallBarVisible ? CURRENT_CALL_BAR_HEIGHT + 8 : 0) +
+        (micPermissionsError ? CALL_ERROR_BAR_HEIGHT + 8 : 0) +
+        (callQualityAlert ? CALL_ERROR_BAR_HEIGHT + 8 : 0) +
+        (joinCallBannerVisible ? JOIN_CALL_BAR_HEIGHT + 8 : 0) +
+        callsIncomingAdjustment;
 };

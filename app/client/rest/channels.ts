@@ -1,12 +1,11 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {analytics} from '@init/analytics';
-import {ChannelCategory, OrderedChannelCategories} from '@mm-redux/types/channel_categories';
-import {Channel, ChannelMemberCountByGroup, ChannelMembership, ChannelNotifyProps, ChannelStats} from '@mm-redux/types/channels';
-import {buildQueryString} from '@mm-redux/utils/helpers';
+import {buildQueryString} from '@utils/helpers';
 
 import {PER_PAGE_DEFAULT} from './constants';
+
+import type ClientBase from './base';
 
 export interface ClientChannelsMix {
     getAllChannels: (page?: number, perPage?: number, notAssociatedToGroup?: string, excludeDefaultChannels?: boolean, includeTotalCount?: boolean) => Promise<any>;
@@ -25,6 +24,7 @@ export interface ClientChannelsMix {
     getChannelByNameAndTeamName: (teamName: string, channelName: string, includeDeleted?: boolean) => Promise<Channel>;
     getChannels: (teamId: string, page?: number, perPage?: number) => Promise<Channel[]>;
     getArchivedChannels: (teamId: string, page?: number, perPage?: number) => Promise<Channel[]>;
+    getSharedChannels: (teamId: string, page?: number, perPage?: number) => Promise<Channel[]>;
     getMyChannels: (teamId: string, includeDeleted?: boolean, lastDeleteAt?: number) => Promise<Channel[]>;
     getMyChannelMember: (channelId: string) => Promise<ChannelMembership>;
     getMyChannelMembers: (teamId: string) => Promise<ChannelMembership[]>;
@@ -41,15 +41,14 @@ export interface ClientChannelsMix {
     autocompleteChannelsForSearch: (teamId: string, name: string) => Promise<Channel[]>;
     searchChannels: (teamId: string, term: string) => Promise<Channel[]>;
     searchArchivedChannels: (teamId: string, term: string) => Promise<Channel[]>;
-
-    // Categories
-    getChannelCategories: (userId: string, teamId: string) => Promise<OrderedChannelCategories>;
-    getChannelCategory: () => Promise<ChannelCategory>;
-    updateChannelCategory: (userId: string, teamId: string, category: ChannelCategory) => Promise<OrderedChannelCategories>;
-    updateChannelCategories: (userId: string, teamId: string, categories: ChannelCategory[]) => Promise<OrderedChannelCategories>;
+    searchAllChannels: (term: string, teamIds: string[], archivedOnly?: boolean) => Promise<Channel[]>;
+    updateChannelMemberSchemeRoles: (channelId: string, userId: string, isSchemeUser: boolean, isSchemeAdmin: boolean) => Promise<any>;
+    getMemberInChannel: (channelId: string, userId: string) => Promise<ChannelMembership>;
+    getGroupMessageMembersCommonTeams: (channelId: string) => Promise<Team[]>;
+    convertGroupMessageToPrivateChannel: (channelId: string, teamId: string, displayName: string, name: string) => Promise<Channel>;
 }
 
-const ClientChannels = (superclass: any) => class extends superclass {
+const ClientChannels = <TBase extends Constructor<ClientBase>>(superclass: TBase) => class extends superclass {
     getAllChannels = async (page = 0, perPage = PER_PAGE_DEFAULT, notAssociatedToGroup = '', excludeDefaultChannels = false, includeTotalCount = false) => {
         const queryData = {
             page,
@@ -65,34 +64,34 @@ const ClientChannels = (superclass: any) => class extends superclass {
     };
 
     createChannel = async (channel: Channel) => {
-        analytics.trackAPI('api_channels_create', {team_id: channel.team_id});
+        this.analytics?.trackAPI('api_channels_create', {team_id: channel.team_id});
 
         return this.doFetch(
             `${this.getChannelsRoute()}`,
-            {method: 'post', body: JSON.stringify(channel)},
+            {method: 'post', body: channel},
         );
     };
 
     createDirectChannel = async (userIds: string[]) => {
-        analytics.trackAPI('api_channels_create_direct');
+        this.analytics?.trackAPI('api_channels_create_direct');
 
         return this.doFetch(
             `${this.getChannelsRoute()}/direct`,
-            {method: 'post', body: JSON.stringify(userIds)},
+            {method: 'post', body: userIds},
         );
     };
 
     createGroupChannel = async (userIds: string[]) => {
-        analytics.trackAPI('api_channels_create_group');
+        this.analytics?.trackAPI('api_channels_create_group');
 
         return this.doFetch(
             `${this.getChannelsRoute()}/group`,
-            {method: 'post', body: JSON.stringify(userIds)},
+            {method: 'post', body: userIds},
         );
     };
 
     deleteChannel = async (channelId: string) => {
-        analytics.trackAPI('api_channels_delete', {channel_id: channelId});
+        this.analytics?.trackAPI('api_channels_delete', {channel_id: channelId});
 
         return this.doFetch(
             `${this.getChannelRoute(channelId)}`,
@@ -101,7 +100,7 @@ const ClientChannels = (superclass: any) => class extends superclass {
     };
 
     unarchiveChannel = async (channelId: string) => {
-        analytics.trackAPI('api_channels_unarchive', {channel_id: channelId});
+        this.analytics?.trackAPI('api_channels_unarchive', {channel_id: channelId});
 
         return this.doFetch(
             `${this.getChannelRoute(channelId)}/restore`,
@@ -110,47 +109,47 @@ const ClientChannels = (superclass: any) => class extends superclass {
     };
 
     updateChannel = async (channel: Channel) => {
-        analytics.trackAPI('api_channels_update', {channel_id: channel.id});
+        this.analytics?.trackAPI('api_channels_update', {channel_id: channel.id});
 
         return this.doFetch(
             `${this.getChannelRoute(channel.id)}`,
-            {method: 'put', body: JSON.stringify(channel)},
+            {method: 'put', body: channel},
         );
     };
 
     convertChannelToPrivate = async (channelId: string) => {
-        return this.updateChannelPrivacy(channelId, 'P');
+        this.updateChannelPrivacy(channelId, 'P');
     };
 
     updateChannelPrivacy = async (channelId: string, privacy: any) => {
-        analytics.trackAPI('api_channels_update_privacy', {channel_id: channelId, privacy});
+        this.analytics?.trackAPI('api_channels_update_privacy', {channel_id: channelId, privacy});
 
         return this.doFetch(
             `${this.getChannelRoute(channelId)}/privacy`,
-            {method: 'put', body: JSON.stringify({privacy})},
+            {method: 'put', body: {privacy}},
         );
     };
 
-    patchChannel = async (channelId: string, channelPatch: Partial<Channel>) => {
-        analytics.trackAPI('api_channels_patch', {channel_id: channelId});
+    patchChannel = async (channelId: string, channelPatch: ChannelPatch) => {
+        this.analytics?.trackAPI('api_channels_patch', {channel_id: channelId});
 
         return this.doFetch(
             `${this.getChannelRoute(channelId)}/patch`,
-            {method: 'put', body: JSON.stringify(channelPatch)},
+            {method: 'put', body: channelPatch},
         );
     };
 
     updateChannelNotifyProps = async (props: ChannelNotifyProps & {channel_id: string; user_id: string}) => {
-        analytics.trackAPI('api_users_update_channel_notifications', {channel_id: props.channel_id});
+        this.analytics?.trackAPI('api_users_update_channel_notifications', {channel_id: props.channel_id});
 
         return this.doFetch(
             `${this.getChannelMemberRoute(props.channel_id, props.user_id)}/notify_props`,
-            {method: 'put', body: JSON.stringify(props)},
+            {method: 'put', body: props},
         );
     };
 
     getChannel = async (channelId: string) => {
-        analytics.trackAPI('api_channel_get', {channel_id: channelId});
+        this.analytics?.trackAPI('api_channel_get', {channel_id: channelId});
 
         return this.doFetch(
             `${this.getChannelRoute(channelId)}`,
@@ -166,7 +165,7 @@ const ClientChannels = (superclass: any) => class extends superclass {
     };
 
     getChannelByNameAndTeamName = async (teamName: string, channelName: string, includeDeleted = false) => {
-        analytics.trackAPI('api_channel_get_by_name_and_teamName', {channel_name: channelName, team_name: teamName, include_deleted: includeDeleted});
+        this.analytics?.trackAPI('api_channel_get_by_name_and_teamName', {channel_name: channelName, team_name: teamName, include_deleted: includeDeleted});
 
         return this.doFetch(
             `${this.getTeamNameRoute(teamName)}/channels/name/${channelName}?include_deleted=${includeDeleted}`,
@@ -184,6 +183,13 @@ const ClientChannels = (superclass: any) => class extends superclass {
     getArchivedChannels = async (teamId: string, page = 0, perPage = PER_PAGE_DEFAULT) => {
         return this.doFetch(
             `${this.getTeamRoute(teamId)}/channels/deleted${buildQueryString({page, per_page: perPage})}`,
+            {method: 'get'},
+        );
+    };
+
+    getSharedChannels = async (teamId: string, page = 0, perPage = PER_PAGE_DEFAULT) => {
+        return this.doFetch(
+            `${this.getSharedChannelsRoute()}/${teamId}${buildQueryString({page, per_page: perPage})}`,
             {method: 'get'},
         );
     };
@@ -236,22 +242,22 @@ const ClientChannels = (superclass: any) => class extends superclass {
     getChannelMembersByIds = async (channelId: string, userIds: string[]) => {
         return this.doFetch(
             `${this.getChannelMembersRoute(channelId)}/ids`,
-            {method: 'post', body: JSON.stringify(userIds)},
+            {method: 'post', body: userIds},
         );
     };
 
     addToChannel = async (userId: string, channelId: string, postRootId = '') => {
-        analytics.trackAPI('api_channels_add_member', {channel_id: channelId});
+        this.analytics?.trackAPI('api_channels_add_member', {channel_id: channelId});
 
         const member = {user_id: userId, channel_id: channelId, post_root_id: postRootId};
         return this.doFetch(
             `${this.getChannelMembersRoute(channelId)}`,
-            {method: 'post', body: JSON.stringify(member)},
+            {method: 'post', body: member},
         );
     };
 
     removeFromChannel = async (userId: string, channelId: string) => {
-        analytics.trackAPI('api_channels_remove_member', {channel_id: channelId});
+        this.analytics?.trackAPI('api_channels_remove_member', {channel_id: channelId});
 
         return this.doFetch(
             `${this.getChannelMemberRoute(channelId, userId)}`,
@@ -274,10 +280,11 @@ const ClientChannels = (superclass: any) => class extends superclass {
     };
 
     viewMyChannel = async (channelId: string, prevChannelId?: string) => {
+        // collapsed_threads_supported is not based on user preferences but to know if "CLIENT" supports CRT
         const data = {channel_id: channelId, prev_channel_id: prevChannelId, collapsed_threads_supported: true};
         return this.doFetch(
             `${this.getChannelsRoute()}/members/me/view`,
-            {method: 'post', body: JSON.stringify(data)},
+            {method: 'post', body: data},
         );
     };
 
@@ -298,47 +305,72 @@ const ClientChannels = (superclass: any) => class extends superclass {
     searchChannels = async (teamId: string, term: string) => {
         return this.doFetch(
             `${this.getTeamRoute(teamId)}/channels/search`,
-            {method: 'post', body: JSON.stringify({term})},
+            {method: 'post', body: {term}},
         );
     };
 
     searchArchivedChannels = async (teamId: string, term: string) => {
         return this.doFetch(
             `${this.getTeamRoute(teamId)}/channels/search_archived`,
-            {method: 'post', body: JSON.stringify({term})},
+            {method: 'post', body: {term}},
         );
     };
 
-    // Channel Category Routes
-    getChannelCategoriesRoute(userId: string, teamId: string) {
-        return `${this.getUserRoute('me')}/teams/${teamId}/channels/categories`;
-    }
+    searchAllChannels = async (term: string, teamIds: string[], archivedOnly = false) => {
+        const queryParams = {include_deleted: false, system_console: false, exclude_default_channels: false};
+        const body = {
+            term,
+            team_ids: teamIds,
+            deleted: archivedOnly,
+            exclude_default_channels: true,
+            exclude_group_constrained: true,
+            public: true,
+            private: false,
+        };
 
-    getChannelCategories = async (userId: string, teamId: string) => {
         return this.doFetch(
-            `${this.getChannelCategoriesRoute(userId, teamId)}`,
+            `${this.getChannelsRoute()}/search${buildQueryString(queryParams)}`,
+            {method: 'post', body},
+        );
+    };
+
+    // Update a channel member's scheme_admin/scheme_user properties. Typically
+    // this should either be scheme_admin=false, scheme_user=true for ordinary
+    // channel member, or scheme_admin=true, scheme_user=true for a channel
+    // admin.
+    updateChannelMemberSchemeRoles = (channelId: string, userId: string, isSchemeUser: boolean, isSchemeAdmin: boolean) => {
+        const body = {scheme_user: isSchemeUser, scheme_admin: isSchemeAdmin};
+        return this.doFetch(
+            `${this.getChannelMembersRoute(channelId)}/${userId}/schemeRoles`,
+            {method: 'put', body},
+        );
+    };
+
+    getMemberInChannel = (channelId: string, userId: string) => {
+        return this.doFetch(
+            `${this.getChannelMembersRoute(channelId)}/${userId}`,
             {method: 'get'},
         );
     };
 
-    getChannelCategory = async (userId: string, teamId: string, categoryId: string) => {
+    getGroupMessageMembersCommonTeams = (channelId: string) => {
         return this.doFetch(
-            `${this.getChannelCategoriesRoute(userId, teamId)}/${categoryId}`,
+            `${this.getChannelRoute(channelId)}/common_teams`,
             {method: 'get'},
         );
     };
 
-    updateChannelCategory = (userId: string, teamId: string, category: ChannelCategory) => {
-        return this.doFetch(
-            `${this.getChannelCategoriesRoute(userId, teamId)}/${category.id}`,
-            {method: 'put', body: JSON.stringify(category)},
-        );
-    };
+    convertGroupMessageToPrivateChannel = (channelId: string, teamId: string, displayName: string, name: string) => {
+        const body = {
+            channel_id: channelId,
+            team_id: teamId,
+            display_name: displayName,
+            name,
+        };
 
-    updateChannelCategories = (userId: string, teamId: string, categories: ChannelCategory[]) => {
         return this.doFetch(
-            `${this.getChannelCategoriesRoute(userId, teamId)}`,
-            {method: 'put', body: JSON.stringify(categories)},
+            `${this.getChannelRoute(channelId)}/convert_to_channel?team-id=${teamId}`,
+            {method: 'post', body},
         );
     };
 };

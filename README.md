@@ -1,17 +1,14 @@
-# Note: development on this repository has primarily moved to the `gekidou` branch
-This `master` branch is mostly in maintenance mode while we're working to getting our "v2" (code named "gekidou") to the GA stage. To contribute check out the [gekidou](https://github.com/mattermost/mattermost-mobile/tree/gekidou) branch in this repository.
+# Mattermost Mobile v2
 
-# Mattermost Mobile App
-[![Mattermost](https://user-images.githubusercontent.com/7205829/136108314-75cd2e1f-4147-4cfa-a16c-9b3b0313ea25.png)](https://mattermost.com)
-
-- **Minimum Server versions:** Current ESR version (6.3.0)
-- **Supported iOS versions:** 12.1+
+- **Minimum Server versions:** Current ESR version (8.1.0+)
+- **Supported iOS versions:** 12.4+
 - **Supported Android versions:** 7.0+
 
+Mattermost is an open source Slack-alternative used by thousands of companies around the world in 21 languages. Learn more at [https://mattermost.com](https://mattermost.com).
 
-[Mattermost](https://mattermost.com) is an open source platform for secure collaboration across the entire software development lifecycle. This repo is for the mobile app that runs on Android and iOS. You can download our apps from the [App Store](https://about.mattermost.com/mattermost-ios-app/) or [Google Play Store](https://about.mattermost.com/mattermost-android-app/), or [build them yourself](https://developers.mattermost.com/contribute/mobile/build-your-own/). 
+You can download our apps from the [App Store](https://mattermost.com/mattermost-ios-app/) or [Google Play Store](https://mattermost.com/mattermost-android-app/), or [build them yourself](https://developers.mattermost.com/contribute/mobile/build-your-own/). 
 
-New features are released monthly - check the [changelog](https://github.com/mattermost/mattermost-mobile/blob/master/CHANGELOG.md) for currently-supported features! 
+We plan on releasing monthly updates with new features - check the [changelog](https://github.com/mattermost/mattermost-mobile/blob/master/CHANGELOG.md) for what features are currently supported! 
 
 **Important:** If you self-compile the Mattermost Mobile apps you also need to deploy your own [Mattermost Push Notification Service](https://github.com/mattermost/mattermost-push-proxy/releases). 
 
@@ -30,8 +27,8 @@ To help with testing app updates before they're released, you can:
    - Repro steps
    - Observed behavior (including screenshot / video when possible)
    - Expected behavior
-4. (Optional) [Sign up for our team site](https://pre-release.mattermost.com/signup_user_complete/?id=f1924a8db44ff3bb41c96424cdc20676)
-   - Join the [Native Mobile Apps channel](https://pre-release.mattermost.com/core/channels/native-mobile-apps) to see what's new and discuss feedback with other contributors and the core team
+4. (Optional) [Sign up for our team site](https://community.mattermost.com/signup_user_complete/?id=codoy5s743rq5mk18i7u5ksz7e&md=link&sbr=su)
+   - Join the [Native Mobile Apps channel](https://community.mattermost.com/core/channels/native-mobile-apps) to see what's new and discuss feedback with other contributors and the core team
    
 You can leave the Beta testing program at any time:
 - On Android, [click this link](https://play.google.com/apps/testing/com.mattermost.rnbeta) while logged in with your Google Play email address used to opt-in for the Beta program, then click **Leave the program**. 
@@ -42,7 +39,7 @@ You can leave the Beta testing program at any time:
 1. Look in [GitHub issues](https://mattermost.com/pl/help-wanted-mattermost-mobile) for issues marked as [Help Wanted]
 2. Comment to let people know you’re working on it
 3. Follow [these instructions](https://developers.mattermost.com/contribute/mobile/developer-setup/) to set up your developer environment
-4. Join the [Native Mobile Apps channel](https://pre-release.mattermost.com/core/channels/native-mobile-apps) on our team site to ask questions
+4. Join the [Native Mobile Apps channel](https://community.mattermost.com/core/channels/native-mobile-apps) on our team site to ask questions
 
 
 
@@ -52,15 +49,9 @@ You can leave the Beta testing program at any time:
 
 App data is wiped from the device when a user logs out of the app. If the user is logged in when the account is deactivated, then within one minute the system logs the user out, and as a result all app data is wiped from the device.
 
-### Can I connect to multiple Mattermost servers using the mobile apps?
+### I need the code for the v1 version
 
-At the moment, we only support connecting to one server at a time. If you need to connect to multiple servers, please [upvote the feature request](https://mattermost.uservoice.com/forums/306457/suggestions/10975938) so we can track demand for it. 
-
-As a work around, you can install both the released "Mattermost" app and sign up to be a [tester](#testing) for the "Mattermost Beta" app so you can connect to two servers at once.
-
-### Will there be second generation apps available for tablets?
-
-We plan to add support for tablets in the future, but the timeline depends on how many people have a need for it. If you're looking for a tablet version, please help us out by [upvoting the feature request](https://mattermost.uservoice.com/forums/306457/suggestions/20082079)!
+You can still access it! We have moved the code from master to the [v1 branch](https://github.com/mattermost/mattermost-mobile/tree/v1). Be aware that we will not be providing any more v1 versions or updates in the public stores.
 
 # Troubleshooting
 

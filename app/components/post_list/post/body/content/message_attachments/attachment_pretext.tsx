@@ -2,18 +2,29 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {StyleProp, StyleSheet, TextStyle, View, ViewStyle} from 'react-native';
+import {type StyleProp, StyleSheet, type TextStyle, View} from 'react-native';
 
 import Markdown from '@components/markdown';
-import {PostMetadata} from '@mm-redux/types/posts';
+
+import type {MarkdownBlockStyles, MarkdownTextStyles} from '@typings/global/markdown';
 
 type Props = {
     baseTextStyle: StyleProp<TextStyle>;
-        blockStyles?: Array<StyleProp<ViewStyle>>;
-        metadata?: PostMetadata;
-        textStyles?: Array<StyleProp<TextStyle>>;
-        value?: string;
+    blockStyles?: MarkdownBlockStyles;
+    channelId: string;
+    location: string;
+    metadata?: PostMetadata | null;
+    textStyles?: MarkdownTextStyles;
+    theme: Theme;
+    value?: string;
 }
+
+const style = StyleSheet.create({
+    container: {
+        marginTop: 5,
+    },
+});
+
 export default function AttachmentPreText(props: Props) {
     const {
         baseTextStyle,
@@ -30,19 +41,16 @@ export default function AttachmentPreText(props: Props) {
     return (
         <View style={style.container}>
             <Markdown
-                baseTextStyle={baseTextStyle as never}
+                baseTextStyle={baseTextStyle}
+                channelId={props.channelId}
                 textStyles={textStyles}
                 blockStyles={blockStyles}
                 disableGallery={true}
                 imagesMetadata={metadata?.images}
+                location={props.location}
+                theme={props.theme}
                 value={value}
             />
         </View>
     );
 }
-
-const style = StyleSheet.create({
-    container: {
-        marginTop: 5,
-    },
-});

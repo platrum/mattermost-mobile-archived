@@ -1,108 +1,160 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {connect} from 'react-redux';
+import {withDatabase, withObservables} from '@nozbe/watermelondb/react';
+import React from 'react';
+import {of as of$, combineLatest} from 'rxjs';
+import {switchMap, distinctUntilChanged} from 'rxjs/operators';
 
-import {showPermalink} from '@actions/views/permalink';
-import {THREAD} from '@constants/screen';
-import {removePost} from '@mm-redux/actions/posts';
-import {getChannel} from '@mm-redux/selectors/entities/channels';
-import {getConfig} from '@mm-redux/selectors/entities/general';
-import {getPost, isRootPost} from '@mm-redux/selectors/entities/posts';
-import {getMyPreferences, getTeammateNameDisplaySetting, isCollapsedThreadsEnabled} from '@mm-redux/selectors/entities/preferences';
-import {getCurrentTeamId} from '@mm-redux/selectors/entities/teams';
-import {getThread} from '@mm-redux/selectors/entities/threads';
-import {getUser} from '@mm-redux/selectors/entities/users';
-import {UserThread} from '@mm-redux/types/threads';
-import {isPostFlagged, isSystemMessage} from '@mm-redux/utils/post_utils';
-import {canDeletePost} from '@selectors/permissions';
-import {areConsecutivePosts, postUserDisplayName} from '@utils/post';
+import {Permissions, Preferences, Screens} from '@constants';
+import {queryFilesForPost} from '@queries/servers/file';
+import {observePost, observePostAuthor, queryPostsBetween, observeIsPostPriorityEnabled} from '@queries/servers/post';
+import {queryReactionsForPost} from '@queries/servers/reaction';
+import {observeCanManageChannelMembers, observePermissionForPost} from '@queries/servers/role';
+import {observeThreadById} from '@queries/servers/thread';
+import {observeCurrentUser} from '@queries/servers/user';
+import {areConsecutivePosts, isPostEphemeral} from '@utils/post';
 
 import Post from './post';
 
-import type {Post as PostType} from '@mm-redux/types/posts';
-import type {GlobalState} from '@mm-redux/types/store';
-import type {Theme} from '@mm-redux/types/theme';
-import type {StyleProp, ViewStyle} from 'react-native';
+import type {Database} from '@nozbe/watermelondb';
+import type {WithDatabaseArgs} from '@typings/database/database';
+import type PostModel from '@typings/database/models/servers/post';
+import type PostsInThreadModel from '@typings/database/models/servers/posts_in_thread';
+import type UserModel from '@typings/database/models/servers/user';
 
-type OwnProps = {
+type PropsInput = WithDatabaseArgs & {
+    currentUser?: UserModel;
+    isCRTEnabled?: boolean;
+    nextPost: PostModel | undefined;
+    post: PostModel;
+    previousPost: PostModel | undefined;
     location: string;
-    highlight?: boolean;
-    postId: string;
-    post?: PostType;
-    previousPostId?: string;
-    nextPostId?: string;
-    style?: StyleProp<ViewStyle>;
-    testID: string;
-    theme: Theme;
 }
 
-function mapSateToProps(state: GlobalState, ownProps: OwnProps) {
-    const {nextPostId, postId, previousPostId} = ownProps;
-    const post = ownProps.post || getPost(state, postId);
-    const myPreferences = getMyPreferences(state);
-    const channel = getChannel(state, post.channel_id);
-    const teamId = getCurrentTeamId(state);
-    const author = getUser(state, post.user_id);
-    const previousPost = previousPostId ? getPost(state, previousPostId) : undefined;
-    const config = getConfig(state);
-    const teammateNameDisplay = getTeammateNameDisplaySetting(state);
-    const enablePostUsernameOverride = config.EnablePostUsernameOverride === 'true';
-    const isConsecutivePost = post && previousPost && !author?.is_bot && !isRootPost(state, post.id) && areConsecutivePosts(post, previousPost);
-    let isFirstReply = true;
-    let isLastReply = true;
-    let canDelete = false;
-    let rootPostAuthor;
+function observeShouldHighlightReplyBar(database: Database, currentUser: UserModel, post: PostModel, postsInThread: PostsInThreadModel) {
+    const myPostsCount = queryPostsBetween(database, postsInThread.earliest, postsInThread.latest, null, currentUser.id, '', post.rootId || post.id).observeCount();
+    const root = observePost(database, post.rootId);
 
-    if (post && channel?.delete_at === 0) {
-        canDelete = canDeletePost(state, channel?.team_id || teamId, post?.channel_id, post, false);
+    return combineLatest([myPostsCount, root]).pipe(
+        switchMap(([mpc, r]) => {
+            const threadRepliedToByCurrentUser = mpc > 0;
+            let threadCreatedByCurrentUser = false;
+            if (r?.userId === currentUser.id) {
+                threadCreatedByCurrentUser = true;
+            }
+            let commentsNotifyLevel = Preferences.COMMENTS_NEVER;
+            if (currentUser.notifyProps?.comments) {
+                commentsNotifyLevel = currentUser.notifyProps.comments;
+            }
+
+            const notCurrentUser = post.userId !== currentUser.id || Boolean(post.props?.from_webhook);
+            if (notCurrentUser) {
+                if (commentsNotifyLevel === Preferences.COMMENTS_ANY && (threadCreatedByCurrentUser || threadRepliedToByCurrentUser)) {
+                    return of$(true);
+                } else if (commentsNotifyLevel === Preferences.COMMENTS_ROOT && threadCreatedByCurrentUser) {
+                    return of$(true);
+                }
+            }
+
+            return of$(false);
+        }),
+    );
+}
+
+function observeHasReplies(database: Database, post: PostModel) {
+    if (!post.rootId) {
+        return post.postsInThread.observe().pipe(switchMap((c) => of$(c.length > 0)));
     }
 
-    if (post.root_id) {
-        const nextPost = nextPostId ? getPost(state, nextPostId) : undefined;
-        isFirstReply = (previousPost?.id === post.root_id || previousPost?.root_id === post.root_id);
-        isLastReply = !(nextPost?.root_id === post.root_id);
-    }
-
-    if (!isSystemMessage(post)) {
-        const rootPost = post.root_id ? getPost(state, post.root_id) : undefined;
-        const rootPostUser = rootPost?.user_id ? getUser(state, rootPost.user_id) : undefined;
-        const differentThreadSequence = previousPost?.root_id ? previousPost?.root_id !== post.root_id : previousPost?.id !== post.root_id;
-
-        if (rootPost?.user_id &&
-            previousPostId &&
-            differentThreadSequence
-        ) {
-            rootPostAuthor = postUserDisplayName(rootPost, rootPostUser, teammateNameDisplay, enablePostUsernameOverride);
+    return observePost(database, post.rootId).pipe(switchMap((r) => {
+        if (r) {
+            return r.postsInThread.observe().pipe(switchMap((c) => of$(c.length > 0)));
         }
-    }
-
-    const collapsedThreadsEnabled = isCollapsedThreadsEnabled(state);
-
-    let thread: UserThread | null = null;
-    if (collapsedThreadsEnabled && ownProps.location !== THREAD) {
-        thread = getThread(state, post.id, true);
-    }
-
-    return {
-        canDelete,
-        enablePostUsernameOverride,
-        isConsecutivePost,
-        collapsedThreadsEnabled,
-        isFirstReply,
-        isFlagged: isPostFlagged(post.id, myPreferences),
-        isLastReply,
-        post,
-        rootPostAuthor,
-        teammateNameDisplay,
-        thread,
-        threadStarter: getUser(state, post.user_id),
-    };
+        return of$(false);
+    }));
 }
 
-const mapDispatchToProps = {
-    removePost,
-    showPermalink,
-};
+function isFirstReply(post: PostModel, previousPost?: PostModel) {
+    if (post.rootId) {
+        if (previousPost) {
+            return post.rootId !== previousPost.id && post.rootId !== previousPost.rootId;
+        }
+        return true;
+    }
+    return false;
+}
 
-export default connect(mapSateToProps, mapDispatchToProps)(Post);
+const withSystem = withObservables([], ({database}: WithDatabaseArgs) => ({
+    currentUser: observeCurrentUser(database),
+}));
+
+const withPost = withObservables(
+    ['currentUser', 'isCRTEnabled', 'post', 'previousPost', 'nextPost'],
+    ({currentUser, database, isCRTEnabled, post, previousPost, nextPost, location}: PropsInput) => {
+        let isLastReply = of$(true);
+        let isPostAddChannelMember = of$(false);
+        const isOwner = currentUser?.id === post.userId;
+        const author = post.userId ? observePostAuthor(database, post) : of$(undefined);
+        const canDelete = observePermissionForPost(database, post, currentUser, isOwner ? Permissions.DELETE_POST : Permissions.DELETE_OTHERS_POSTS, false);
+        const isEphemeral = of$(isPostEphemeral(post));
+
+        if (post.props?.add_channel_member && isPostEphemeral(post) && currentUser) {
+            isPostAddChannelMember = observeCanManageChannelMembers(database, post.channelId, currentUser);
+        }
+
+        let highlightReplyBar = of$(false);
+        if (!isCRTEnabled && location === Screens.CHANNEL) {
+            highlightReplyBar = post.postsInThread.observe().pipe(
+                switchMap((postsInThreads: PostsInThreadModel[]) => {
+                    if (postsInThreads.length && currentUser) {
+                        return observeShouldHighlightReplyBar(database, currentUser, post, postsInThreads[0]);
+                    }
+                    return of$(false);
+                }),
+                distinctUntilChanged(),
+            );
+        }
+
+        let differentThreadSequence = true;
+        if (post.rootId) {
+            differentThreadSequence = previousPost?.rootId ? previousPost?.rootId !== post.rootId : previousPost?.id !== post.rootId;
+            isLastReply = of$(!(nextPost?.rootId === post.rootId));
+        }
+
+        const hasReplies = observeHasReplies(database, post);//Need to review and understand
+
+        const isConsecutivePost = author.pipe(
+            switchMap((user) => of$(Boolean(post && previousPost && !user?.isBot && areConsecutivePosts(post, previousPost)))),
+            distinctUntilChanged(),
+        );
+
+        const hasFiles = queryFilesForPost(database, post.id).observeCount().pipe(
+            switchMap((c) => of$(c > 0)),
+            distinctUntilChanged(),
+        );
+
+        const hasReactions = queryReactionsForPost(database, post.id).observeCount().pipe(
+            switchMap((c) => of$(c > 0)),
+            distinctUntilChanged(),
+        );
+
+        return {
+            canDelete,
+            differentThreadSequence: of$(differentThreadSequence),
+            hasFiles,
+            hasReplies,
+            highlightReplyBar,
+            isConsecutivePost,
+            isEphemeral,
+            isFirstReply: of$(isFirstReply(post, previousPost)),
+            isLastReply,
+            isPostAddChannelMember,
+            isPostPriorityEnabled: observeIsPostPriorityEnabled(database),
+            post: post.observe(),
+            thread: isCRTEnabled ? observeThreadById(database, post.id) : of$(undefined),
+            hasReactions,
+        };
+    });
+
+export default React.memo(withDatabase(withSystem(withPost(Post))));

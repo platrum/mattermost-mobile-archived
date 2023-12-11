@@ -2,20 +2,21 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {StyleProp, Text, TextStyle, View, ViewStyle} from 'react-native';
+import {type StyleProp, Text, type TextStyle, View} from 'react-native';
 
 import Markdown from '@components/markdown';
-import {MessageAttachmentField} from '@mm-redux/types/message_attachments';
-import {PostMetadata} from '@mm-redux/types/posts';
-import {Theme} from '@mm-redux/types/theme';
 import {makeStyleSheetFromTheme} from '@utils/theme';
+
+import type {MarkdownBlockStyles, MarkdownTextStyles} from '@typings/global/markdown';
 
 type Props = {
     baseTextStyle: StyleProp<TextStyle>;
-    blockStyles?: Array<StyleProp<ViewStyle>>;
+    blockStyles?: MarkdownBlockStyles;
+    channelId: string;
     fields: MessageAttachmentField[];
-    metadata?: PostMetadata;
-    textStyles?: Array<StyleProp<TextStyle>>;
+    location: string;
+    metadata?: PostMetadata | null;
+    textStyles?: MarkdownTextStyles;
     theme: Theme;
 }
 
@@ -36,7 +37,7 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
         },
         heading: {
             color: theme.centerChannelColor,
-            fontWeight: '600',
+            fontFamily: 'OpenSans-SemiBold',
         },
         table: {
             flex: 1,
@@ -45,11 +46,11 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     };
 });
 
-const AttachmentFields = ({baseTextStyle, blockStyles, fields, metadata, textStyles, theme}: Props) => {
+const AttachmentFields = ({baseTextStyle, blockStyles, channelId, fields, location, metadata, textStyles, theme}: Props) => {
     const style = getStyleSheet(theme);
     const fieldTables = [];
 
-    let fieldInfos = [] as React.ReactNode[];
+    let fieldInfos: React.ReactNode[] = [];
     let rowPos = 0;
     let lastWasLong = false;
     let nrTables = 0;
@@ -92,11 +93,14 @@ const AttachmentFields = ({baseTextStyle, blockStyles, fields, metadata, textSty
                     key={`attachment__field-${i.toString()}__${nrTables}`}
                 >
                     <Markdown
-                        baseTextStyle={baseTextStyle as never}
+                        baseTextStyle={baseTextStyle}
+                        channelId={channelId}
                         textStyles={textStyles}
                         blockStyles={blockStyles}
                         disableGallery={true}
                         imagesMetadata={metadata?.images}
+                        location={location}
+                        theme={theme}
                         value={(field.value || '')}
                     />
                 </View>

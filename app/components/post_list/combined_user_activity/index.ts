@@ -1,54 +1,64 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {connect} from 'react-redux';
+import {withDatabase, withObservables} from '@nozbe/watermelondb/react';
+import React from 'react';
+import {combineLatest, of as of$} from 'rxjs';
+import {map, switchMap} from 'rxjs/operators';
 
-import {getMissingProfilesByIds, getMissingProfilesByUsernames} from '@mm-redux/actions/users';
-import {Preferences} from '@mm-redux/constants';
-import {getChannel} from '@mm-redux/selectors/entities/channels';
-import {getBool} from '@mm-redux/selectors/entities/preferences';
-import {getCurrentTeamId} from '@mm-redux/selectors/entities/teams';
-import {getCurrentUser, getUsernamesByUserId} from '@mm-redux/selectors/entities/users';
-import {makeGenerateCombinedPost} from '@mm-redux/utils/post_list';
-import {canDeletePost} from '@selectors/permissions';
+import {Permissions} from '@constants';
+import {queryPostsById} from '@queries/servers/post';
+import {observePermissionForPost} from '@queries/servers/role';
+import {observeCurrentUserId} from '@queries/servers/system';
+import {observeUser, queryUsersByIdsOrUsernames} from '@queries/servers/user';
+import {generateCombinedPost, getPostIdsForCombinedUserActivityPost} from '@utils/post_list';
 
 import CombinedUserActivity from './combined_user_activity';
 
-import type {GlobalState} from '@mm-redux/types/store';
-import type {UserProfile} from '@mm-redux/types/users';
+import type {WithDatabaseArgs} from '@typings/database/database';
 
-type OwnProps = {
-    postId: string;
-};
+const withCombinedPosts = withObservables(['postId'], ({database, postId}: WithDatabaseArgs & {postId: string}) => {
+    const currentUserId = observeCurrentUserId(database);
+    const currentUser = currentUserId.pipe(
+        switchMap((value) => observeUser(database, value)),
+    );
 
-export function mapStateToProps() {
-    const generateCombinedPost = makeGenerateCombinedPost();
-    return (state: GlobalState, ownProps: OwnProps) => {
-        const currentUser: UserProfile | undefined = getCurrentUser(state);
-        const post = generateCombinedPost(state, ownProps.postId);
-        const channel = getChannel(state, post?.channel_id);
-        const teamId = getCurrentTeamId(state);
-        const {allUserIds, allUsernames} = post.props.user_activity!;
-        let canDelete = false;
+    const postIds = getPostIdsForCombinedUserActivityPost(postId);
 
-        if (post && channel?.delete_at === 0) {
-            canDelete = canDeletePost(state, channel?.team_id || teamId, post?.channel_id, post, false);
-        }
+    // Columns observed: `props` is used by `usernamesById`. `message` is used by generateCombinedPost.
+    const posts = queryPostsById(database, postIds).observeWithColumns(['props', 'message']);
+    const post = posts.pipe(map((ps) => (ps.length ? generateCombinedPost(postId, ps) : null)));
+    const canDelete = combineLatest([posts, currentUser]).pipe(
+        switchMap(([ps, u]) => (ps.length ? observePermissionForPost(database, ps[0], u, Permissions.DELETE_OTHERS_POSTS, false) : of$(false))),
+    );
 
-        return {
-            canDelete,
-            currentUserId: currentUser?.id,
-            currentUsername: currentUser?.username,
-            post,
-            showJoinLeave: getBool(state, Preferences.CATEGORY_ADVANCED_SETTINGS, Preferences.ADVANCED_FILTER_JOIN_LEAVE, true),
-            usernamesById: getUsernamesByUserId(state, allUserIds, allUsernames),
-        };
+    const usernamesById = post.pipe(
+        switchMap(
+            (p) => {
+                if (!p) {
+                    return of$<Record<string, string>>({});
+                }
+                return queryUsersByIdsOrUsernames(database, p.props.user_activity.allUserIds, p.props.user_activity.allUsernames).observeWithColumns(['username']).
+                    pipe(
+                        // eslint-disable-next-line max-nested-callbacks
+                        switchMap((users) => {
+                            // eslint-disable-next-line max-nested-callbacks
+                            return of$(users.reduce((acc: Record<string, string>, user) => {
+                                acc[user.id] = user.username;
+                                return acc;
+                            }, {}));
+                        }),
+                    );
+            },
+        ),
+    );
+
+    return {
+        canDelete,
+        currentUserId,
+        post,
+        usernamesById,
     };
-}
+});
 
-const mapDispatchToProps = {
-    getMissingProfilesByIds,
-    getMissingProfilesByUsernames,
-};
-
-export default connect(mapStateToProps, mapDispatchToProps)(CombinedUserActivity);
+export default React.memo(withDatabase(withCombinedPosts(CombinedUserActivity)));

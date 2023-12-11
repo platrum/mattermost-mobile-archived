@@ -1,13 +1,31 @@
 #!/usr/bin/env bash
 
+function installPods() {
+    echo "Getting Cocoapods dependencies"
+    npm run pod-install
+}
+
+function installPodsM1() {
+    echo "Getting Cocoapods dependencies"
+    npm run pod-install-m1
+}
+
 if [[ "$OSTYPE" == "darwin"* ]]; then
-  if !gem list bundler -i --version 2.1.4 > /dev/null 2>&1; then
-    gem install bundler --version 2.1.4
+  if [[ $(uname -p) == 'arm' ]]; then
+    installPodsM1
+  else
+    installPods
   fi
-  echo "Installing Gems"
-  npm run ios-gems
-  echo "Getting Cocoapods dependencies"
-  npm run pod-install
+fi
+
+COMPASS_ICONS="node_modules/@mattermost/compass-icons/font/compass-icons.ttf"
+if [ -z "$COMPASS_ICONS" ]; then
+    echo "Compass Icons font not found"
+    exit 1
+else
+    echo "Configuring Compass Icons font"
+    cp "$COMPASS_ICONS" "assets/fonts/"
+    cp "$COMPASS_ICONS" "android/app/src/main/assets/fonts"
 fi
 
 ASSETS=$(node scripts/generate-assets.js)

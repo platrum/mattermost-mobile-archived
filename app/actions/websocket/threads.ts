@@ -1,77 +1,67 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
-import {batchActions} from 'redux-batched-actions';
 
-import {updateThreadLastViewedAt} from '@actions/views/threads';
-import {handleThreadArrived, handleReadChanged, handleAllMarkedRead, handleFollowChanged, getThread as fetchThread} from '@mm-redux/actions/threads';
-import {getCurrentUserId} from '@mm-redux/selectors/entities/common';
-import {getSelectedPost} from '@mm-redux/selectors/entities/posts';
-import {getCurrentTeamId} from '@mm-redux/selectors/entities/teams';
-import {getThread} from '@mm-redux/selectors/entities/threads';
-import {ActionResult, DispatchFunc, GenericAction, GetStateFunc} from '@mm-redux/types/actions';
-import {WebSocketMessage} from '@mm-redux/types/websocket';
+import {markTeamThreadsAsRead, processReceivedThreads, updateThread} from '@actions/local/thread';
+import DatabaseManager from '@database/manager';
+import {getCurrentTeamId} from '@queries/servers/system';
+import EphemeralStore from '@store/ephemeral_store';
 
-export function handleThreadUpdated(msg: WebSocketMessage) {
-    return (dispatch: DispatchFunc): ActionResult => {
-        try {
-            const threadData = JSON.parse(msg.data.thread);
-            dispatch(handleThreadArrived(threadData, msg.broadcast.team_id));
-        } catch {
-            // does nothing
+export async function handleThreadUpdatedEvent(serverUrl: string, msg: WebSocketMessage): Promise<void> {
+    try {
+        const {database} = DatabaseManager.getServerDatabaseAndOperator(serverUrl);
+
+        const thread: Thread = JSON.parse(msg.data.thread);
+        let teamId = msg.broadcast.team_id;
+
+        if (!teamId) {
+            teamId = await getCurrentTeamId(database);
         }
 
-        return {data: true};
-    };
+        // Mark it as following
+        thread.is_following = true;
+        processReceivedThreads(serverUrl, [thread], teamId);
+    } catch (error) {
+        // Do nothing
+    }
 }
 
-export function handleThreadReadChanged(msg: WebSocketMessage) {
-    return (dispatch: DispatchFunc, getState: GetStateFunc): ActionResult => {
-        if (msg.data.thread_id) {
-            const state = getState();
-            const thread = getThread(state, msg.data.thread_id);
+export async function handleThreadReadChangedEvent(serverUrl: string, msg: WebSocketMessage<ThreadReadChangedData>): Promise<void> {
+    try {
+        const {thread_id, timestamp, unread_mentions, unread_replies} = msg.data;
+        if (thread_id) {
+            const data: Partial<ThreadWithViewedAt> = {
+                unread_mentions,
+                unread_replies,
+                last_viewed_at: timestamp,
+            };
 
-            // Mark only following threads as read.
-            if (thread) {
-                const actions: GenericAction[] = [];
-                const selectedPost = getSelectedPost(state);
-                if (selectedPost?.id !== thread.id) {
-                    actions.push(updateThreadLastViewedAt(thread.id, msg.data.timestamp));
-                }
-                if (thread.is_following) {
-                    actions.push(
-                        handleReadChanged(
-                            msg.data.thread_id,
-                            msg.broadcast.team_id,
-                            msg.data.channel_id,
-                            {
-                                lastViewedAt: msg.data.timestamp,
-                                prevUnreadMentions: thread.unread_mentions,
-                                newUnreadMentions: msg.data.unread_mentions,
-                                prevUnreadReplies: thread.unread_replies,
-                                newUnreadReplies: msg.data.unread_replies,
-                            },
-                        ),
-                    );
-                }
-                if (actions.length) {
-                    dispatch(batchActions(actions));
-                }
+            // Do not update viewing data if the user is currently in the same thread
+            const isThreadVisible = EphemeralStore.getCurrentThreadId() === thread_id;
+            if (!isThreadVisible) {
+                data.viewed_at = timestamp;
             }
+
+            await updateThread(serverUrl, thread_id, data);
         } else {
-            dispatch(handleAllMarkedRead(msg.broadcast.team_id));
+            await markTeamThreadsAsRead(serverUrl, msg.broadcast.team_id);
         }
-        return {data: true};
-    };
+    } catch (error) {
+        // Do nothing
+    }
 }
 
-export function handleThreadFollowChanged(msg: WebSocketMessage) {
-    return async (dispatch: DispatchFunc, getState: GetStateFunc): Promise<ActionResult> => {
-        const state = getState();
-        const thread = getThread(state, msg.data.thread_id);
-        if (!thread && msg.data.state) {
-            await dispatch(fetchThread(getCurrentUserId(state), getCurrentTeamId(state), msg.data.thread_id, true));
-        }
-        dispatch(handleFollowChanged(msg.data.thread_id, msg.broadcast.team_id, msg.data.state));
-        return {data: true};
-    };
+export async function handleThreadFollowChangedEvent(serverUrl: string, msg: WebSocketMessage): Promise<void> {
+    try {
+        const {reply_count, state, thread_id} = msg.data as {
+                reply_count: number;
+                state: boolean;
+                thread_id: string;
+            };
+        await updateThread(serverUrl, thread_id, {
+            is_following: state,
+            reply_count,
+        });
+    } catch (error) {
+        // Do nothing
+    }
 }

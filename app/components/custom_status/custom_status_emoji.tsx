@@ -1,48 +1,31 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {useMemo} from 'react';
-import {Text, TextStyle} from 'react-native';
-import {useSelector} from 'react-redux';
+import React from 'react';
 
 import Emoji from '@components/emoji';
-import {GlobalState} from '@mm-redux/types/store';
-import {makeGetCustomStatus, isCustomStatusExpired} from '@selectors/custom_status';
+
+import type {EmojiCommonStyle} from '@typings/components/emoji';
+import type {StyleProp} from 'react-native';
 
 interface ComponentProps {
+    customStatus: UserCustomStatus;
     emojiSize?: number;
-    userID?: string;
-    style?: TextStyle;
-    testID?: string;
+    style?: StyleProp<EmojiCommonStyle>;
 }
 
-const CustomStatusEmoji = ({emojiSize, userID, style, testID}: ComponentProps) => {
-    const getCustomStatus = useMemo(makeGetCustomStatus, []);
-    const customStatus = useSelector((state: GlobalState) => {
-        return getCustomStatus(state, userID);
-    });
-    const customStatusExpired = useSelector((state: GlobalState) => isCustomStatusExpired(state, customStatus));
-
-    if (!customStatus?.emoji || customStatusExpired) {
-        return null;
-    }
-
-    const testIdPrefix = testID ? `${testID}.` : '';
-    return (
-        <Text
-            style={style}
-            testID={`${testIdPrefix}custom_status_emoji.${customStatus.emoji}`}
-        >
+const CustomStatusEmoji = ({customStatus, emojiSize = 16, style}: ComponentProps) => {
+    if (customStatus.emoji) {
+        return (
             <Emoji
                 size={emojiSize}
                 emojiName={customStatus.emoji}
+                commonStyle={style}
             />
-        </Text>
-    );
-};
+        );
+    }
 
-CustomStatusEmoji.defaultProps = {
-    emojiSize: 16,
+    return null;
 };
 
 export default CustomStatusEmoji;

@@ -4,11 +4,11 @@
 /* eslint-disable camelcase, no-console */
 
 const axios = require('axios');
-var ClientOAuth2 = require('client-oauth2');
+const ClientOAuth2 = require('client-oauth2');
 const express = require('express');
 
-const postMessageAs = require('./e2e/plugins/post_message_as');
-const webhookUtils = require('./e2e/utils/webhook_utils');
+const postMessageAs = require('./utils/post_message_as');
+const webhookUtils = require('./utils/webhook_utils');
 const port = 3000;
 
 const {
@@ -247,7 +247,7 @@ function sendSysadminResponse(message, channelId) {
     const username = ADMIN_USERNAME || 'sysadmin';
     const password = ADMIN_PASSWORD || 'Sys@dmin-sample1';
     const baseUrl = getBaseUrl();
-    postMessageAs({sender: {username, password}, message, channelId, baseUrl});
+    postMessageAs(baseUrl, {sender: {username, password}, message, channelId});
 }
 
 const responseTypes = ['in_channel', 'comment'];

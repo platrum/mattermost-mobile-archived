@@ -1,248 +1,219 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {AppState, NativeModules, Platform} from 'react-native';
-import DeviceInfo from 'react-native-device-info';
+import {AppState, DeviceEventEmitter, Platform, type EmitterSubscription} from 'react-native';
 import {
     Notification,
     NotificationAction,
     NotificationBackgroundFetchResult,
     NotificationCategory,
-    NotificationCompletion,
+    type NotificationCompletion,
     Notifications,
-    NotificationTextInput,
-    Registered,
+    type NotificationTextInput,
+    type Registered,
 } from 'react-native-notifications';
+import {requestNotifications} from 'react-native-permissions';
 
-import {dismissAllModals, popToRoot} from '@actions/navigation';
-import {markChannelViewedAndRead, fetchPostActionWithRetry} from '@actions/views/channel';
-import {getPosts} from '@actions/views/post';
-import {loadFromPushNotification} from '@actions/views/root';
-import {logout} from '@actions/views/user';
-import {NavigationTypes, ViewTypes} from '@constants';
-import {getLocalizedMessage} from '@i18n';
-import {setDeviceToken} from '@mm-redux/actions/general';
-import {General} from '@mm-redux/constants';
-import {isCollapsedThreadsEnabled} from '@mm-redux/selectors/entities/preferences';
-import EventEmitter from '@mm-redux/utils/event_emitter';
-import {getCurrentLocale} from '@selectors/i18n';
-import {getBadgeCount} from '@selectors/views';
+import {storeDeviceToken} from '@actions/app/global';
+import {markChannelAsViewed} from '@actions/local/channel';
+import {updateThread} from '@actions/local/thread';
+import {backgroundNotification, openNotification} from '@actions/remote/notifications';
+import {isCallsStartedMessage} from '@calls/utils';
+import {Device, Events, Navigation, PushNotification, Screens} from '@constants';
+import DatabaseManager from '@database/manager';
+import {DEFAULT_LOCALE, getLocalizedMessage, t} from '@i18n';
+import NativeNotifications from '@notifications';
+import {getServerDisplayName} from '@queries/app/servers';
+import {getCurrentChannelId} from '@queries/servers/system';
+import {getIsCRTEnabled, getThreadById} from '@queries/servers/thread';
+import {showOverlay} from '@screens/navigation';
 import EphemeralStore from '@store/ephemeral_store';
-import Store from '@store/store';
-import {waitForHydration} from '@store/utils';
-import {t} from '@utils/i18n';
-
-import type {DispatchFunc, GetStateFunc} from '@mm-redux/types/actions';
-
-const CATEGORY = 'CAN_REPLY';
-const REPLY_ACTION = 'REPLY_ACTION';
-const AndroidNotificationPreferences = Platform.OS === 'android' ? NativeModules.NotificationPreferences : null;
-const NOTIFICATION_TYPE = {
-    CLEAR: 'clear',
-    MESSAGE: 'message',
-    SESSION: 'session',
-};
-
-interface NotificationWithChannel extends Notification {
-    identifier: string;
-    channel_id: string;
-    post_id: string;
-    root_id: string;
-}
+import NavigationStore from '@store/navigation_store';
+import {isBetaApp} from '@utils/general';
+import {isMainActivity, isTablet} from '@utils/helpers';
+import {logInfo} from '@utils/log';
+import {convertToNotificationData} from '@utils/notification';
 
 class PushNotifications {
     configured = false;
+    subscriptions?: EmitterSubscription[];
 
-    constructor() {
+    init(register: boolean) {
+        this.subscriptions?.forEach((v) => v.remove());
+        this.subscriptions = [
+            Notifications.events().registerNotificationOpened(this.onNotificationOpened),
+            Notifications.events().registerRemoteNotificationsRegistered(this.onRemoteNotificationsRegistered),
+            Notifications.events().registerNotificationReceivedBackground(this.onNotificationReceivedBackground),
+            Notifications.events().registerNotificationReceivedForeground(this.onNotificationReceivedForeground),
+        ];
+
+        if (register) {
+            this.registerIfNeeded();
+        }
+    }
+
+    async registerIfNeeded() {
+        const isRegistered = await Notifications.isRegisteredForRemoteNotifications();
+        if (!isRegistered) {
+            await requestNotifications(['alert', 'sound', 'badge']);
+        }
         Notifications.registerRemoteNotifications();
-        Notifications.events().registerNotificationOpened(this.onNotificationOpened);
-        Notifications.events().registerRemoteNotificationsRegistered(this.onRemoteNotificationsRegistered);
-        Notifications.events().registerNotificationReceivedBackground(this.onNotificationReceivedBackground);
-        Notifications.events().registerNotificationReceivedForeground(this.onNotificationReceivedForeground);
-
-        this.getInitialNotification();
     }
 
-    getNotifications = async (): Promise<NotificationWithChannel[]> => {
-        if (Platform.OS === 'android') {
-            return AndroidNotificationPreferences.getDeliveredNotifications();
-        }
-        return Notifications.ios.getDeliveredNotifications() as Promise<NotificationWithChannel[]>;
+    createReplyCategory = () => {
+        const replyTitle = getLocalizedMessage(DEFAULT_LOCALE, t('mobile.push_notification_reply.title'));
+        const replyButton = getLocalizedMessage(DEFAULT_LOCALE, t('mobile.push_notification_reply.button'));
+        const replyPlaceholder = getLocalizedMessage(DEFAULT_LOCALE, t('mobile.push_notification_reply.placeholder'));
+        const replyTextInput: NotificationTextInput = {buttonTitle: replyButton, placeholder: replyPlaceholder};
+        const replyAction = new NotificationAction(PushNotification.REPLY_ACTION, 'background', replyTitle, true, replyTextInput);
+        return new NotificationCategory(PushNotification.CATEGORY, [replyAction]);
     };
 
-    cancelAllLocalNotifications() {
-        Notifications.cancelAllLocalNotifications();
-    }
+    getServerUrlFromNotification = async (notification: NotificationWithData) => {
+        const {payload} = notification;
 
-    clearNotifications = () => {
-        // TODO: Only cancel the local notifications that belong to this server
-        this.cancelAllLocalNotifications();
-
-        if (Platform.OS === 'ios') {
-            // TODO: Set the badge number to the total amount of mentions on other servers
-            Notifications.ios.setBadgeCount(0);
+        if (!payload?.channel_id && (!payload?.server_url || !payload.server_id)) {
+            return payload?.server_url;
         }
+
+        let serverUrl = payload.server_url;
+        if (!serverUrl && payload.server_id) {
+            serverUrl = await DatabaseManager.getServerUrlFromIdentifier(payload.server_id);
+        }
+
+        return serverUrl;
     };
 
-    clearChannelNotifications = async (channelId: string, rootId?: string) => {
-        const notifications = await this.getNotifications();
+    handleClearNotification = async (notification: NotificationWithData) => {
+        const {payload} = notification;
+        const serverUrl = await this.getServerUrlFromNotification(notification);
 
-        let collapsedThreadsEnabled = false;
-        if (Store.redux) {
-            collapsedThreadsEnabled = isCollapsedThreadsEnabled(Store.redux.getState());
-        }
-
-        const clearThreads = Boolean(rootId);
-
-        const notificationIds: string[] = [];
-        for (let i = 0; i < notifications.length; i++) {
-            const notification = notifications[i];
-            if (notification.channel_id === channelId) {
-                let doesNotificationMatch = true;
-                if (clearThreads) {
-                    doesNotificationMatch = notification.root_id === rootId;
-                } else if (collapsedThreadsEnabled) {
-                    // Do not match when CRT is enabled BUT post is not a root post
-                    doesNotificationMatch = !notification.root_id;
-                }
-
-                if (doesNotificationMatch) {
-                    notificationIds.push(notification.identifier || notification.post_id);
-
-                    // For Android, We just need one matching notification to clear the notifications
-                    if (Platform.OS === 'android') {
-                        break;
+        if (serverUrl && payload?.channel_id) {
+            const database = DatabaseManager.serverDatabases[serverUrl]?.database;
+            if (database) {
+                const isCRTEnabled = await getIsCRTEnabled(database);
+                if (isCRTEnabled && payload.root_id) {
+                    const thread = await getThreadById(database, payload.root_id);
+                    if (thread?.isFollowing) {
+                        const data: Partial<ThreadWithViewedAt> = {
+                            unread_mentions: 0,
+                            unread_replies: 0,
+                            last_viewed_at: Date.now(),
+                        };
+                        updateThread(serverUrl, payload.root_id, data);
                     }
+                } else {
+                    markChannelAsViewed(serverUrl, payload.channel_id);
                 }
             }
         }
+    };
 
-        if (Platform.OS === 'ios') {
-            //set the badge count to the total amount of notifications present in the not-center
-            const badgeCount = notifications.length - notificationIds.length;
-            this.setBadgeCountByMentions(badgeCount);
-        }
+    handleInAppNotification = async (serverUrl: string, notification: NotificationWithData) => {
+        const {payload} = notification;
 
-        if (!notificationIds.length) {
+        // Do not show overlay if this is a call-started message (the call_notification will alert the user)
+        if (isCallsStartedMessage(payload)) {
             return;
         }
 
-        if (Platform.OS === 'android') {
-            AndroidNotificationPreferences.removeDeliveredNotifications(channelId, rootId, collapsedThreadsEnabled);
-        } else {
-            Notifications.ios.removeDeliveredNotifications(notificationIds);
-        }
-    };
-
-    setBadgeCountByMentions = (initialBadge = 0) => {
-        let badgeCount = initialBadge;
-        if (Store.redux) {
-            const totalMentions = getBadgeCount(Store.redux.getState());
-            if (totalMentions > -1) {
-                // replaces the badge count based on the redux store.
-                badgeCount = totalMentions;
-            }
-        }
-
-        if (Platform.OS === 'ios') {
-            badgeCount = badgeCount <= 0 ? 0 : badgeCount;
-            Notifications.ios.setBadgeCount(badgeCount);
-        }
-    };
-
-    createReplyCategory = () => {
-        const {getState} = Store.redux!;
-        const state = getState();
-        const locale = getCurrentLocale(state);
-
-        const replyTitle = getLocalizedMessage(locale, t('mobile.push_notification_reply.title'));
-        const replyButton = getLocalizedMessage(locale, t('mobile.push_notification_reply.button'));
-        const replyPlaceholder = getLocalizedMessage(locale, t('mobile.push_notification_reply.placeholder'));
-        const replyTextInput: NotificationTextInput = {
-            buttonTitle: replyButton,
-            placeholder: replyPlaceholder,
-        };
-        const replyAction = new NotificationAction(REPLY_ACTION, 'background', replyTitle, true, replyTextInput);
-        return new NotificationCategory(CATEGORY, [replyAction]);
-    };
-
-    getInitialNotification = async () => {
-        const notification: NotificationWithData | undefined = await Notifications.getInitialNotification();
-
-        if (notification) {
-            EphemeralStore.setStartFromNotification(true);
-            notification.userInteraction = true;
-
-            if (Platform.OS === 'ios') {
-                // when a notification is received on iOS, getInitialNotification, will return the notification
-                // as the app will initialized cause we are using background fetch,
-                // that does not necessarily mean that the app was opened cause of the notification was tapped.
-                // Here we are going to dettermine if the notification still exists in NotificationCenter to verify if
-                // the app was opened because of a tap or cause of the background fetch init
-                const delivered = await Notifications.ios.getDeliveredNotifications();
-                notification.userInteraction = delivered.find((d) => (d as unknown as NotificationWithAck).ack_id === notification?.payload?.ack_id) == null;
-                notification.foreground = false;
+        const database = DatabaseManager.serverDatabases[serverUrl]?.database;
+        if (database) {
+            const isTabletDevice = isTablet();
+            const displayName = await getServerDisplayName(serverUrl);
+            const channelId = await getCurrentChannelId(database);
+            const isCRTEnabled = await getIsCRTEnabled(database);
+            let serverName;
+            if (Object.keys(DatabaseManager.serverDatabases).length > 1) {
+                serverName = displayName;
             }
 
-            // getInitialNotification may run before the store is set
-            // that is why we run on an interval until the store is available
-            // once we handle the notification the interval is cleared.
-            const interval = setInterval(() => {
-                if (Store.redux) {
-                    clearInterval(interval);
-                    this.handleNotification(notification, true);
-                }
-            }, 500);
+            const isThreadNotification = Boolean(payload?.root_id);
+
+            const isSameChannelNotification = payload?.channel_id === channelId;
+            const isSameThreadNotification = isThreadNotification && payload?.root_id === EphemeralStore.getCurrentThreadId();
+
+            let isInChannelScreen = NavigationStore.getVisibleScreen() === Screens.CHANNEL;
+            if (isTabletDevice) {
+                isInChannelScreen = NavigationStore.getVisibleTab() === Screens.HOME;
+            }
+            const isInThreadScreen = NavigationStore.getVisibleScreen() === Screens.THREAD;
+
+            // Conditions:
+            // 1. If not in channel screen or thread screen, show the notification
+            const condition1 = !isInChannelScreen && !isInThreadScreen;
+
+            // 2. If is in channel screen,
+            //      - Show notification of other channels
+            //        or
+            //      - Show notification if CRT is enabled and it's a thread notification (doesn't matter if it's the same channel)
+            const condition2 = isInChannelScreen && (!isSameChannelNotification || (isCRTEnabled && isThreadNotification));
+
+            // 3. If is in thread screen,
+            //      - Show the notification if it doesn't belong to the thread
+            const condition3 = isInThreadScreen && !isSameThreadNotification;
+
+            if (condition1 || condition2 || condition3) {
+                // Dismiss the screen if it's already visible or else it blocks the navigation
+                DeviceEventEmitter.emit(Navigation.NAVIGATION_SHOW_OVERLAY);
+
+                const screen = Screens.IN_APP_NOTIFICATION;
+                const passProps = {
+                    notification,
+                    serverName,
+                    serverUrl,
+                };
+
+                showOverlay(screen, passProps);
+            }
         }
     };
 
-    handleNotification = (notification: NotificationWithData, isInitialNotification = false) => {
+    handleMessageNotification = async (notification: NotificationWithData) => {
         const {payload, foreground, userInteraction} = notification;
+        const serverUrl = await this.getServerUrlFromNotification(notification);
+        if (serverUrl) {
+            if (foreground) {
+                // Move this to a local action
+                this.handleInAppNotification(serverUrl, notification);
+            } else if (userInteraction && !payload?.userInfo?.local) {
+                // Handle notification tapped
+                openNotification(serverUrl, notification);
+            } else {
+                backgroundNotification(serverUrl, notification);
+            }
+        }
+    };
 
-        if (Store.redux && payload) {
-            const dispatch = Store.redux.dispatch as DispatchFunc;
-            const getState = Store.redux.getState as GetStateFunc;
+    handleSessionNotification = async (notification: NotificationWithData) => {
+        logInfo('Session expired notification');
 
-            waitForHydration(Store.redux, async () => {
-                switch (payload.type) {
-                case NOTIFICATION_TYPE.CLEAR:
-                    dispatch(markChannelViewedAndRead(payload.channel_id, null, false));
+        const serverUrl = await this.getServerUrlFromNotification(notification);
+
+        if (serverUrl) {
+            if (notification.userInteraction) {
+                DeviceEventEmitter.emit(Events.SESSION_EXPIRED, serverUrl);
+            } else {
+                DeviceEventEmitter.emit(Events.SERVER_LOGOUT, {serverUrl});
+            }
+        }
+    };
+
+    processNotification = async (notification: NotificationWithData) => {
+        const {payload} = notification;
+
+        if (payload) {
+            switch (payload.type) {
+                case PushNotification.NOTIFICATION_TYPE.CLEAR:
+                    this.handleClearNotification(notification);
                     break;
-                case NOTIFICATION_TYPE.MESSAGE:
-                    // get the posts for the channel as soon as possible
-                    dispatch(fetchPostActionWithRetry(getPosts(payload.channel_id)));
-
-                    if (foreground) {
-                        EventEmitter.emit(ViewTypes.NOTIFICATION_IN_APP, notification);
-                        this.setBadgeCountByMentions();
-                    } else if (userInteraction && !payload.userInfo?.local) {
-                        dispatch(loadFromPushNotification(notification, isInitialNotification));
-                        const componentId = EphemeralStore.getNavigationTopComponentId();
-                        if (componentId) {
-                            EventEmitter.emit(NavigationTypes.CLOSE_MAIN_SIDEBAR);
-                            EventEmitter.emit(NavigationTypes.CLOSE_SETTINGS_SIDEBAR);
-
-                            await dismissAllModals();
-                            await popToRoot();
-
-                            if (!isInitialNotification) {
-                                const {root_id: rootId, channel_id: channelId} = notification.payload || {};
-                                if (rootId && isCollapsedThreadsEnabled(getState())) {
-                                    EventEmitter.emit('goToThread', {id: rootId, channel_id: channelId});
-                                }
-                            }
-                        }
-                    } else if (!userInteraction && Platform.OS === 'ios') {
-                        dispatch(loadFromPushNotification(notification, isInitialNotification, true));
-                    }
+                case PushNotification.NOTIFICATION_TYPE.MESSAGE:
+                    this.handleMessageNotification(notification);
                     break;
-                case NOTIFICATION_TYPE.SESSION:
-                    // eslint-disable-next-line no-console
-                    console.log('Session expired notification');
-                    dispatch(logout());
+                case PushNotification.NOTIFICATION_TYPE.SESSION:
+                    this.handleSessionNotification(notification);
                     break;
-                }
-            });
+            }
         }
     };
 
@@ -250,57 +221,68 @@ class PushNotifications {
         Notifications.postLocalNotification(notification);
     };
 
-    onNotificationOpened = (notification: NotificationWithData, completion: () => void) => {
+    // This triggers when a notification is tapped and the app was in the background (iOS)
+    onNotificationOpened = (incoming: Notification, completion: () => void) => {
+        const notification = convertToNotificationData(incoming, false);
         notification.userInteraction = true;
-        this.handleNotification(notification);
+
+        this.processNotification(notification);
         completion();
     };
 
-    onNotificationReceivedBackground = (notification: NotificationWithData, completion: (response: NotificationBackgroundFetchResult) => void) => {
-        this.handleNotification(notification);
-        completion(NotificationBackgroundFetchResult.NO_DATA);
+    // This triggers when the app was in the background (iOS)
+    onNotificationReceivedBackground = async (incoming: Notification, completion: (response: NotificationBackgroundFetchResult) => void) => {
+        const notification = convertToNotificationData(incoming, false);
+        this.processNotification(notification);
+
+        completion(NotificationBackgroundFetchResult.NEW_DATA);
     };
 
-    onNotificationReceivedForeground = (notification: NotificationWithData, completion: (response: NotificationCompletion) => void) => {
-        notification.foreground = AppState.currentState === 'active';
+    // This triggers when the app was in the foreground (Android and iOS)
+    // Also triggers when the app was in the background (Android)
+    onNotificationReceivedForeground = (incoming: Notification, completion: (response: NotificationCompletion) => void) => {
+        const notification = convertToNotificationData(incoming, false);
+        if (AppState.currentState !== 'inactive') {
+            notification.foreground = AppState.currentState === 'active' && isMainActivity();
+
+            this.processNotification(notification);
+        }
         completion({alert: false, sound: true, badge: true});
-        this.handleNotification(notification);
     };
 
-    onRemoteNotificationsRegistered = (event: Registered) => {
+    onRemoteNotificationsRegistered = async (event: Registered) => {
         if (!this.configured) {
+            this.configured = true;
             const {deviceToken} = event;
             let prefix;
 
             if (Platform.OS === 'ios') {
-                prefix = General.PUSH_NOTIFY_APPLE_REACT_NATIVE;
-                if (DeviceInfo.getBundleId().includes('rnbeta')) {
+                prefix = Device.PUSH_NOTIFY_APPLE_REACT_NATIVE;
+                if (isBetaApp) {
                     prefix = `${prefix}beta`;
                 }
             } else {
-                prefix = General.PUSH_NOTIFY_ANDROID_REACT_NATIVE;
+                prefix = Device.PUSH_NOTIFY_ANDROID_REACT_NATIVE;
             }
 
-            EphemeralStore.deviceToken = `${prefix}:${deviceToken}`;
-            if (Store.redux) {
-                this.configured = true;
-                const dispatch = Store.redux.dispatch as DispatchFunc;
-                waitForHydration(Store.redux, () => {
-                    this.requestNotificationReplyPermissions();
-                    dispatch(setDeviceToken(EphemeralStore.deviceToken));
-                });
-            } else {
-                // The redux store is not ready, so we retry it to set the
-                // token to prevent sessions being registered without a device id
-                // This code may be executed on fast devices cause the token registration
-                // is faster than the redux store configuration.
-                // Note: Should not be needed once WDB is implemented
-                const remoteTimeout = setTimeout(() => {
-                    clearTimeout(remoteTimeout);
-                    this.onRemoteNotificationsRegistered(event);
-                }, 200);
-            }
+            storeDeviceToken(`${prefix}-v2:${deviceToken}`);
+
+            // Store the device token in the default database
+            this.requestNotificationReplyPermissions();
         }
+        return null;
+    };
+
+    removeChannelNotifications = async (serverUrl: string, channelId: string) => {
+        NativeNotifications.removeChannelNotifications(serverUrl, channelId);
+    };
+
+    removeServerNotifications = (serverUrl: string) => {
+        NativeNotifications.removeServerNotifications(serverUrl);
+    };
+
+    removeThreadNotifications = async (serverUrl: string, threadId: string) => {
+        NativeNotifications.removeThreadNotifications(serverUrl, threadId);
     };
 
     requestNotificationReplyPermissions = () => {
@@ -316,8 +298,14 @@ class PushNotifications {
                 notification.fireDate = new Date(notification.fireDate).toISOString();
             }
 
-            Notifications.postLocalNotification(notification);
+            return Notifications.postLocalNotification(notification);
         }
+
+        return 0;
+    };
+
+    cancelScheduleNotification = (notificationId: number) => {
+        Notifications.cancelLocalNotification(notificationId);
     };
 }
 

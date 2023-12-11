@@ -1,22 +1,22 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {analytics} from '@init/analytics';
-import {Command, DialogSubmission} from '@mm-redux/types/integrations';
-import {buildQueryString} from '@mm-redux/utils/helpers';
+import {buildQueryString} from '@utils/helpers';
 
 import {PER_PAGE_DEFAULT} from './constants';
 
+import type ClientBase from './base';
+
 export interface ClientIntegrationsMix {
     getCommandsList: (teamId: string) => Promise<Command[]>;
-    getCommandAutocompleteSuggestionsList: (userInput: string, teamId: string, commandArgs?: Record<string, any>) => Promise<Command[]>;
+    getCommandAutocompleteSuggestionsList: (userInput: string, teamId: string, channelId: string, rootId?: string) => Promise<AutocompleteSuggestion[]>;
     getAutocompleteCommandsList: (teamId: string, page?: number, perPage?: number) => Promise<Command[]>;
-    executeCommand: (command: Command, commandArgs?: Record<string, any>) => Promise<any>;
+    executeCommand: (command: string, commandArgs?: CommandArgs) => Promise<CommandResponse>;
     addCommand: (command: Command) => Promise<Command>;
     submitInteractiveDialog: (data: DialogSubmission) => Promise<any>;
 }
 
-const ClientIntegrations = (superclass: any) => class extends superclass {
+const ClientIntegrations = <TBase extends Constructor<ClientBase>>(superclass: TBase) => class extends superclass {
     getCommandsList = async (teamId: string) => {
         return this.doFetch(
             `${this.getCommandsRoute()}?team_id=${teamId}`,
@@ -24,9 +24,9 @@ const ClientIntegrations = (superclass: any) => class extends superclass {
         );
     };
 
-    getCommandAutocompleteSuggestionsList = async (userInput: string, teamId: string, commandArgs: {}) => {
+    getCommandAutocompleteSuggestionsList = async (userInput: string, teamId: string, channelId: string, rootId?: string) => {
         return this.doFetch(
-            `${this.getTeamRoute(teamId)}/commands/autocomplete_suggestions${buildQueryString({...commandArgs, user_input: userInput})}`,
+            `${this.getTeamRoute(teamId)}/commands/autocomplete_suggestions${buildQueryString({user_input: userInput, team_id: teamId, channel_id: channelId, root_id: rootId})}`,
             {method: 'get'},
         );
     };
@@ -38,29 +38,29 @@ const ClientIntegrations = (superclass: any) => class extends superclass {
         );
     };
 
-    executeCommand = async (command: Command, commandArgs = {}) => {
-        analytics.trackAPI('api_integrations_used');
+    executeCommand = async (command: string, commandArgs = {}) => {
+        this.analytics?.trackAPI('api_integrations_used');
 
         return this.doFetch(
             `${this.getCommandsRoute()}/execute`,
-            {method: 'post', body: JSON.stringify({command, ...commandArgs})},
+            {method: 'post', body: {command, ...commandArgs}},
         );
     };
 
     addCommand = async (command: Command) => {
-        analytics.trackAPI('api_integrations_created');
+        this.analytics?.trackAPI('api_integrations_created');
 
         return this.doFetch(
             `${this.getCommandsRoute()}`,
-            {method: 'post', body: JSON.stringify(command)},
+            {method: 'post', body: command},
         );
     };
 
     submitInteractiveDialog = async (data: DialogSubmission) => {
-        analytics.trackAPI('api_interactive_messages_dialog_submitted');
+        this.analytics?.trackAPI('api_interactive_messages_dialog_submitted');
         return this.doFetch(
-            `${this.getBaseRoute()}/actions/dialogs/submit`,
-            {method: 'post', body: JSON.stringify(data)},
+            `${this.urlVersion}/actions/dialogs/submit`,
+            {method: 'post', body: data},
         );
     };
 };

@@ -2,17 +2,17 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {intlShape, injectIntl} from 'react-intl';
+import {useIntl} from 'react-intl';
 import {Alert, Text, View} from 'react-native';
 
 import Markdown from '@components/markdown';
-import {Theme} from '@mm-redux/types/theme';
 import {makeStyleSheetFromTheme} from '@utils/theme';
 import {tryOpenURL} from '@utils/url';
 
 type Props = {
-    intl: typeof intlShape;
+    channelId: string;
     link?: string;
+    location: string;
     theme: Theme;
     value?: string;
 }
@@ -28,14 +28,15 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
         title: {
             color: theme.centerChannelColor,
             fontSize: 14,
-            fontWeight: '600',
+            fontFamily: 'OpenSans-SemiBold',
             lineHeight: 20,
             marginBottom: 5,
         },
     };
 });
 
-const AttachmentTitle = ({intl, link, theme, value}: Props) => {
+const AttachmentTitle = ({channelId, link, location, theme, value}: Props) => {
+    const intl = useIntl();
     const style = getStyleSheet(theme);
 
     const openLink = () => {
@@ -61,8 +62,8 @@ const AttachmentTitle = ({intl, link, theme, value}: Props) => {
     if (link) {
         title = (
             <Text
-                style={[style.title, Boolean(link) && style.link]}
                 onPress={openLink}
+                style={[style.title, Boolean(link) && style.link]}
             >
                 {value}
             </Text>
@@ -70,6 +71,8 @@ const AttachmentTitle = ({intl, link, theme, value}: Props) => {
     } else {
         title = (
             <Markdown
+                channelId={channelId}
+                location={location}
                 isEdited={false}
                 isReplyPost={false}
                 disableHashtags={true}
@@ -93,4 +96,4 @@ const AttachmentTitle = ({intl, link, theme, value}: Props) => {
     );
 };
 
-export default injectIntl(AttachmentTitle);
+export default AttachmentTitle;

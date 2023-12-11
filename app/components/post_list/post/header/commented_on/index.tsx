@@ -6,9 +6,8 @@ import React from 'react';
 import FormattedText from '@components/formatted_text';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
-import type {Theme} from '@mm-redux/types/theme';
-
 type HeaderCommentedOnProps = {
+    locale: string;
     name: string;
     theme: Theme;
 }
@@ -23,13 +22,15 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     };
 });
 
-const HeaderCommentedOn = ({name, theme}: HeaderCommentedOnProps) => {
+const HeaderCommentedOn = ({locale, name, theme}: HeaderCommentedOnProps) => {
     const style = getStyleSheet(theme);
     let apostrophe;
-    if (name.slice(-1) === 's') {
-        apostrophe = '\'';
-    } else {
-        apostrophe = '\'s';
+    if (locale.toLowerCase().startsWith('en')) {
+        if (name.slice(-1) === 's') {
+            apostrophe = '\'';
+        } else {
+            apostrophe = '\'s';
+        }
     }
 
     return (
@@ -41,7 +42,7 @@ const HeaderCommentedOn = ({name, theme}: HeaderCommentedOnProps) => {
                 apostrophe,
             }}
             style={style.commentedOn}
-            testId='post_header.commented_on'
+            testID='post_header.commented_on'
         />
     );
 };

@@ -1,29 +1,28 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {ReactNode} from 'react';
-import {intlShape, injectIntl} from 'react-intl';
+import React, {type ReactNode} from 'react';
+import {useIntl} from 'react-intl';
 import {Text} from 'react-native';
 
-import AtMention from '@components/at_mention';
+import {removePost, sendAddToChannelEphemeralPost} from '@actions/local/post';
+import {addMembersToChannel} from '@actions/remote/channel';
 import FormattedText from '@components/formatted_text';
-import {General} from '@mm-redux/constants';
-import {t} from '@utils/i18n';
+import AtMention from '@components/markdown/at_mention';
+import {General} from '@constants';
+import {useServerUrl} from '@context/server';
+import {t} from '@i18n';
 import {getMarkdownTextStyles} from '@utils/markdown';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 
-import type {Post} from '@mm-redux/types/posts';
-import type {Theme} from '@mm-redux/types/theme';
-import type {UserProfile} from '@mm-redux/types/users';
+import type PostModel from '@typings/database/models/servers/post';
+import type UserModel from '@typings/database/models/servers/user';
 
 type AddMembersProps = {
-    addChannelMember: (channelId: string, userId: string, postRootId?: string) => void;
-    channelType: string;
-    currentUser: UserProfile;
-    intl: typeof intlShape;
-    post: Post;
-    removePost: (post: Post) => void;
-    sendAddToChannelEphemeralPost: (user: UserProfile, addedUsernames: string[], message: string, channelId: string, rootPostId?: string) => void;
+    channelType: string | null;
+    currentUser?: UserModel;
+    location: string;
+    post: PostModel;
     theme: Theme;
 }
 
@@ -31,19 +30,21 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     return {
         message: {
             color: changeOpacity(theme.centerChannelColor, 0.6),
-            fontSize: 15,
+            fontSize: 16,
             lineHeight: 20,
         },
     };
 });
 
-const AddMembers = ({addChannelMember, channelType, currentUser, intl, post, removePost, sendAddToChannelEphemeralPost, theme}: AddMembersProps) => {
+const AddMembers = ({channelType, currentUser, location, post, theme}: AddMembersProps) => {
+    const intl = useIntl();
     const styles = getStyleSheet(theme);
     const textStyles = getMarkdownTextStyles(theme);
-    const postId: string = post.props.add_channel_member.post_id;
+    const serverUrl = useServerUrl();
+    const postId: string = post.props.add_channel_member?.post_id;
     const noGroupsUsernames = post.props.add_channel_member?.not_in_groups_usernames;
-    let userIds = post.props.add_channel_member?.not_in_channel_user_ids;
-    let usernames = post.props.add_channel_member?.not_in_channel_usernames;
+    let userIds: string[] = post.props.add_channel_member?.not_in_channel_user_ids;
+    let usernames: string[] = post.props.add_channel_member?.not_in_channel_usernames;
 
     if (!postId || !channelType) {
         return null;
@@ -57,27 +58,25 @@ const AddMembers = ({addChannelMember, channelType, currentUser, intl, post, rem
     }
 
     const handleAddChannelMember = () => {
-        if (post && post.channel_id) {
-            userIds.forEach((userId: string, index: number) => {
-                addChannelMember(post.channel_id, userId);
-
-                if (post.root_id) {
-                    const message = intl.formatMessage(
+        if (post && post.channelId && currentUser) {
+            addMembersToChannel(serverUrl, post.channelId, userIds, post.rootId, false);
+            if (post.rootId) {
+                const messages = usernames.map((addedUsername) => {
+                    return intl.formatMessage(
                         {
                             id: 'api.channel.add_member.added',
                             defaultMessage: '{addedUsername} added to the channel by {username}.',
                         },
                         {
                             username: currentUser.username,
-                            addedUsername: usernames[index],
+                            addedUsername,
                         },
                     );
+                });
+                sendAddToChannelEphemeralPost(serverUrl, currentUser, usernames, messages, post.channelId, post.rootId);
+            }
 
-                    sendAddToChannelEphemeralPost(currentUser, usernames[index], message, post.channel_id, post.root_id);
-                }
-            });
-
-            removePost(post);
+            removePost(serverUrl, post);
         }
     };
 
@@ -85,9 +84,10 @@ const AddMembers = ({addChannelMember, channelType, currentUser, intl, post, rem
         if (names.length === 1) {
             return (
                 <AtMention
+                    channelId={post.channelId}
+                    location={location}
                     mentionName={names[0]}
                     mentionStyle={textStyles.mention}
-                    theme={theme}
                 />
             );
         } else if (names.length > 1) {
@@ -97,7 +97,6 @@ const AddMembers = ({addChannelMember, channelType, currentUser, intl, post, rem
                         key={key}
                         id={'post_body.check_for_out_of_channel_mentions.link.and'}
                         defaultMessage={' and '}
-                        style={textStyles}
                     />
                 );
             }
@@ -113,9 +112,10 @@ const AddMembers = ({addChannelMember, channelType, currentUser, intl, post, rem
                             return (
                                 <AtMention
                                     key={username}
+                                    channelId={post.channelId}
+                                    location={location}
                                     mentionStyle={textStyles.mention}
                                     mentionName={username}
-                                    theme={theme}
                                 />
                             );
                         }).reduce((acc: ReactNode[], el: ReactNode, idx: number, arr: ReactNode[]) => {
@@ -135,8 +135,8 @@ const AddMembers = ({addChannelMember, channelType, currentUser, intl, post, rem
         return '';
     };
 
-    let linkId;
-    let linkText;
+    let linkId = '';
+    let linkText = '';
     if (channelType === General.PRIVATE_CHANNEL) {
         linkId = t('post_body.check_for_out_of_channel_mentions.link.private');
         linkText = 'add them to this private channel';
@@ -145,8 +145,8 @@ const AddMembers = ({addChannelMember, channelType, currentUser, intl, post, rem
         linkText = 'add them to the channel';
     }
 
-    let outOfChannelMessageID;
-    let outOfChannelMessageText;
+    let outOfChannelMessageID = '';
+    let outOfChannelMessageText = '';
     const outOfChannelAtMentions = generateAtMentions(usernames);
     if (usernames.length === 1) {
         outOfChannelMessageID = t('post_body.check_for_out_of_channel_mentions.message.one');
@@ -156,8 +156,8 @@ const AddMembers = ({addChannelMember, channelType, currentUser, intl, post, rem
         outOfChannelMessageText = 'were mentioned but they are not in the channel. Would you like to ';
     }
 
-    let outOfGroupsMessageID;
-    let outOfGroupsMessageText;
+    let outOfGroupsMessageID = '';
+    let outOfGroupsMessageText = '';
     const outOfGroupsAtMentions = generateAtMentions(noGroupsUsernames);
     if (noGroupsUsernames?.length) {
         outOfGroupsMessageID = t('post_body.check_for_out_of_channel_groups_mentions.message');
@@ -217,4 +217,4 @@ const AddMembers = ({addChannelMember, channelType, currentUser, intl, post, rem
     );
 };
 
-export default injectIntl(AddMembers);
+export default AddMembers;

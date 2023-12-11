@@ -1,16 +1,16 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {buildQueryString} from '@mm-redux/utils/helpers';
+import {buildQueryString} from '@utils/helpers';
 
-import type {AppBinding, AppCallRequest, AppCallResponse} from '@mm-redux/types/apps';
+import type ClientBase from './base';
 
 export interface ClientAppsMix {
-    executeAppCall: (call: AppCallRequest, trackAsSubmit: boolean) => Promise<AppCallResponse>;
+    executeAppCall: <Res = unknown>(call: AppCallRequest, trackAsSubmit: boolean) => Promise<AppCallResponse<Res>>;
     getAppsBindings: (userID: string, channelID: string, teamID: string) => Promise<AppBinding[]>;
 }
 
-const ClientApps = (superclass: any) => class extends superclass {
+const ClientApps = <TBase extends Constructor<ClientBase>>(superclass: TBase) => class extends superclass {
     executeAppCall = async (call: AppCallRequest, trackAsSubmit: boolean) => {
         const callCopy = {
             ...call,
@@ -23,7 +23,7 @@ const ClientApps = (superclass: any) => class extends superclass {
 
         return this.doFetch(
             `${this.getAppsProxyRoute()}/api/v1/call`,
-            {method: 'post', body: JSON.stringify(callCopy)},
+            {method: 'post', body: callCopy},
         );
     };
 

@@ -1,50 +1,55 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {Group} from '@mm-redux/types/groups';
-import {buildQueryString} from '@mm-redux/utils/helpers';
+import {buildQueryString} from '@utils/helpers';
 
 import {PER_PAGE_DEFAULT} from './constants';
 
+import type ClientBase from './base';
+
 export interface ClientGroupsMix {
-    getGroups: (filterAllowReference?: boolean, page?: number, perPage?: number) => Promise<Group[]>;
-    getGroupsByUserId: (userID: string) => Promise<Group[]>;
-    getAllGroupsAssociatedToTeam: (teamID: string, filterAllowReference?: boolean) => Promise<Group[]>;
-    getAllGroupsAssociatedToChannelsInTeam: (teamID: string, filterAllowReference?: boolean) => Promise<Group[]>;
-    getAllGroupsAssociatedToChannel: (channelID: string, filterAllowReference?: boolean) => Promise<Group[]>;
+    getGroups: (params: {query?: string; filterAllowReference?: boolean; page?: number; perPage?: number; since?: number; includeMemberCount?: boolean}) => Promise<Group[]>;
+    getAllGroupsAssociatedToChannel: (channelId: string, filterAllowReference?: boolean) => Promise<{groups: Group[]; total_group_count: number}>;
+    getAllGroupsAssociatedToMembership: (userId: string, filterAllowReference?: boolean) => Promise<Group[]>;
+    getAllGroupsAssociatedToTeam: (teamId: string, filterAllowReference?: boolean) => Promise<{groups: Group[]; total_group_count: number}>;
 }
 
-const ClientGroups = (superclass: any) => class extends superclass {
-    getGroups = async (filterAllowReference = false, page = 0, perPage = PER_PAGE_DEFAULT, since = 0) => {
+const ClientGroups = <TBase extends Constructor<ClientBase>>(superclass: TBase) => class extends superclass {
+    getGroups = async ({query = '', filterAllowReference = true, page = 0, perPage = PER_PAGE_DEFAULT, since = 0, includeMemberCount = false}) => {
         return this.doFetch(
-            `${this.getBaseRoute()}/groups${buildQueryString({filter_allow_reference: filterAllowReference, page, per_page: perPage, since})}`,
+            `${this.urlVersion}/groups${buildQueryString({
+                q: query,
+                filter_allow_reference: filterAllowReference,
+                page,
+                per_page: perPage,
+                since,
+                include_member_count: includeMemberCount,
+            })}`,
             {method: 'get'},
         );
     };
 
-    getGroupsByUserId = async (userID: string) => {
+    getAllGroupsAssociatedToChannel = async (channelId: string, filterAllowReference = false) => {
         return this.doFetch(
-            `${this.getUsersRoute()}/${userID}/groups`,
-            {method: 'get'},
-        );
-    };
-    getAllGroupsAssociatedToTeam = async (teamID: string, filterAllowReference = false) => {
-        return this.doFetch(
-            `${this.getBaseRoute()}/teams/${teamID}/groups${buildQueryString({paginate: false, filter_allow_reference: filterAllowReference})}`,
-            {method: 'get'},
-        );
-    };
-
-    getAllGroupsAssociatedToChannelsInTeam = async (teamID: string, filterAllowReference = false) => {
-        return this.doFetch(
-            `${this.getBaseRoute()}/teams/${teamID}/groups_by_channels${buildQueryString({paginate: false, filter_allow_reference: filterAllowReference})}`,
+            `${this.urlVersion}/channels/${channelId}/groups${buildQueryString({
+                paginate: false,
+                filter_allow_reference: filterAllowReference,
+                include_member_count: true,
+            })}`,
             {method: 'get'},
         );
     };
 
-    getAllGroupsAssociatedToChannel = async (channelID: string, filterAllowReference = false) => {
+    getAllGroupsAssociatedToTeam = async (teamId: string, filterAllowReference = false) => {
         return this.doFetch(
-            `${this.getBaseRoute()}/channels/${channelID}/groups${buildQueryString({paginate: false, filter_allow_reference: filterAllowReference})}`,
+            `${this.urlVersion}/teams/${teamId}/groups${buildQueryString({paginate: false, filter_allow_reference: filterAllowReference})}`,
+            {method: 'get'},
+        );
+    };
+
+    getAllGroupsAssociatedToMembership = async (userId: string, filterAllowReference = false) => {
+        return this.doFetch(
+            `${this.urlVersion}/users/${userId}/groups${buildQueryString({paginate: false, filter_allow_reference: filterAllowReference})}`,
             {method: 'get'},
         );
     };

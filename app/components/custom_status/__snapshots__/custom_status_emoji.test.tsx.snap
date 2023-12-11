@@ -2,38 +2,34 @@
 
 exports[`components/custom_status/custom_status_emoji should match snapshot 1`] = `
 <Text
-  testID="custom_status_emoji.calendar"
+  style={
+    [
+      undefined,
+      undefined,
+      {
+        "color": "#000",
+        "fontSize": 16,
+      },
+    ]
+  }
 >
-  <Text
-    style={
-      Array [
-        undefined,
-        Object {
-          "fontSize": 16,
-        },
-      ]
-    }
-  >
-    📆
-  </Text>
+  📆
 </Text>
 `;
 
 exports[`components/custom_status/custom_status_emoji should match snapshot with props 1`] = `
 <Text
-  testID="custom_status_emoji.calendar"
+  style={
+    [
+      undefined,
+      undefined,
+      {
+        "color": "#000",
+        "fontSize": 34,
+      },
+    ]
+  }
 >
-  <Text
-    style={
-      Array [
-        undefined,
-        Object {
-          "fontSize": 34,
-        },
-      ]
-    }
-  >
-    📆
-  </Text>
+  📆
 </Text>
 `;

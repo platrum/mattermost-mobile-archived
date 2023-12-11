@@ -2,17 +2,15 @@
 // See LICENSE.txt for license information.
 
 import React from 'react';
-import {intlShape, injectIntl} from 'react-intl';
+import {useIntl} from 'react-intl';
 import {Alert, Text, View} from 'react-native';
 import FastImage from 'react-native-fast-image';
 
-import {Theme} from '@mm-redux/types/theme';
 import {changeOpacity, makeStyleSheetFromTheme} from '@utils/theme';
 import {tryOpenURL} from '@utils/url';
 
 type Props = {
     icon?: string;
-    intl: typeof intlShape;
     link?: string;
     name?: string;
     theme: Theme;
@@ -37,7 +35,8 @@ const getStyleSheet = makeStyleSheetFromTheme((theme: Theme) => {
     };
 });
 
-const AttachmentAuthor = ({icon, intl, link, name, theme}: Props) => {
+const AttachmentAuthor = ({icon, link, name, theme}: Props) => {
+    const intl = useIntl();
     const style = getStyleSheet(theme);
 
     const openLink = () => {
@@ -71,8 +70,8 @@ const AttachmentAuthor = ({icon, intl, link, name, theme}: Props) => {
             {Boolean(name) &&
             <Text
                 key='author_name'
-                style={[style.name, Boolean(link) && style.link]}
                 onPress={openLink}
+                style={[style.name, Boolean(link) && style.link]}
             >
                 {name}
             </Text>
@@ -81,4 +80,4 @@ const AttachmentAuthor = ({icon, intl, link, name, theme}: Props) => {
     );
 };
 
-export default injectIntl(AttachmentAuthor);
+export default AttachmentAuthor;

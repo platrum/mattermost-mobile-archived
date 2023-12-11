@@ -6,28 +6,24 @@ module.exports = {
     verbose: true,
     globals: {
         'ts-jest': {
-            tsConfigFile: 'tsconfig.jest.json',
+            tsConfigFile: 'tsconfig.test.json',
         },
     },
+    moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
     clearMocks: true,
-    setupFilesAfterEnv: [
-        '<rootDir>/test/setup.js',
-        '<rootDir>/node_modules/jest-enzyme/lib/index.js',
-    ],
-    collectCoverageFrom: [
-        'app/**/*.{js,jsx,ts,tsx}',
-    ],
-    coverageReporters: [
-        'lcov',
-        'text-summary',
-    ],
-    testPathIgnorePatterns: [
-        '/node_modules/',
-    ],
-    moduleNameMapper: {
-        'assets/images/video_player/(.*).png': '<rootDir>/dist/assets/images/video_player/$1@2x.png',
+    setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
+    collectCoverageFrom: ['app/**/*.{js,jsx,ts,tsx}'],
+    coverageReporters: ['lcov', 'text-summary'],
+    testPathIgnorePatterns: ['/node_modules/'],
+    transform: {
+        '\\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$': '<rootDir>/test/file_transformer.js',
     },
     transformIgnorePatterns: [
-        'node_modules/(?!(react-native|@react-native|jail-monkey|serialize-error|@sentry/react-native|react-navigation|@react-native-community/cameraroll|hast-util-from-selector|hastscript|property-information|hast-util-parse-selector|space-separated-tokens|comma-separated-tokens|zwitch))',
+        'node_modules/(?!(@react-native|react-native)|jail-monkey|@sentry/react-native|react-clone-referenced-element|@react-native-community|react-navigation|@react-navigation/.*|validator|react-syntax-highlighter/.*|hast-util-from-selector|hastscript|property-information|hast-util-parse-selector|space-separated-tokens|comma-separated-tokens|zwitch|@mattermost/calls|@voximplant/react-native-foreground-service)',
     ],
+    moduleNameMapper: {
+
+        // Force module uuid to resolve with the CJS entry point, because Jest does not support package.json.exports. See https://github.com/uuidjs/uuid/issues/451
+        uuid: require.resolve('uuid'),
+    },
 };

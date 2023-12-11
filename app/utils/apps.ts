@@ -1,23 +1,8 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
-import {AppBindingLocations, AppCallResponseTypes, AppFieldTypes} from '@mm-redux/constants/apps';
-import {getConfig} from '@mm-redux/selectors/entities/general';
-import {AppBinding, AppCall, AppCallRequest, AppCallResponse, AppCallValues, AppContext, AppExpand, AppField, AppForm, AppSelectOption} from '@mm-redux/types/apps';
-import {Config} from '@mm-redux/types/config';
-import {GlobalState} from '@mm-redux/types/store';
+import {AppBindingLocations, AppCallResponseTypes, AppFieldTypes} from '@constants/apps';
 
-export function appsConfiguredAsEnabled(state: GlobalState): boolean { // eslint-disable-line @typescript-eslint/no-unused-vars
-    const enabled = getConfig(state)?.['FeatureFlagAppsEnabled' as keyof Partial<Config>];
-    return enabled === 'true';
-}
-
-export function appsPluginIsEnabled(state: GlobalState): boolean {
-    return state.entities.apps.pluginEnabled;
-}
-
-export function appsEnabled(state: GlobalState): boolean {
-    return appsConfiguredAsEnabled(state) && appsPluginIsEnabled(state);
-}
+import {generateId} from './general';
 
 export function cleanBinding(binding: AppBinding, topLocation: string): AppBinding {
     return cleanBindingRec(binding, topLocation, 0);
@@ -40,6 +25,10 @@ function cleanBindingRec(binding: AppBinding, topLocation: string, depth: number
             b.label = b.location || '';
         }
 
+        if (!b.location) {
+            b.location = generateId();
+        }
+
         b.location = binding.location + '/' + b.location;
 
         // Validation
@@ -55,25 +44,25 @@ function cleanBindingRec(binding: AppBinding, topLocation: string, depth: number
         }
 
         switch (topLocation) {
-        case AppBindingLocations.COMMAND: {
-            if (b.label.match(/ |\t/)) {
-                toRemove.unshift(i);
-                return;
-            }
+            case AppBindingLocations.COMMAND: {
+                if (b.label.match(/ |\t/)) {
+                    toRemove.unshift(i);
+                    return;
+                }
 
-            if (usedLabels[b.label]) {
-                toRemove.unshift(i);
-                return;
+                if (usedLabels[b.label]) {
+                    toRemove.unshift(i);
+                    return;
+                }
+                break;
             }
-            break;
-        }
-        case AppBindingLocations.IN_POST: {
-            if (usedLabels[b.label]) {
-                toRemove.unshift(i);
-                return;
+            case AppBindingLocations.IN_POST: {
+                if (usedLabels[b.label]) {
+                    toRemove.unshift(i);
+                    return;
+                }
+                break;
             }
-            break;
-        }
         }
 
         // Must have only subbindings, a form or a submit call.
@@ -162,18 +151,18 @@ export function cleanForm(form?: AppForm): void {
         }
 
         switch (field.type) {
-        case AppFieldTypes.STATIC_SELECT:
-            cleanStaticSelect(field);
-            if (!field.options?.length) {
-                toRemove.unshift(i);
-                return;
-            }
-            break;
-        case AppFieldTypes.DYNAMIC_SELECT:
-            if (!field.lookup) {
-                toRemove.unshift(i);
-                return;
-            }
+            case AppFieldTypes.STATIC_SELECT:
+                cleanStaticSelect(field);
+                if (!field.options?.length) {
+                    toRemove.unshift(i);
+                    return;
+                }
+                break;
+            case AppFieldTypes.DYNAMIC_SELECT:
+                if (!field.lookup) {
+                    toRemove.unshift(i);
+                    return;
+                }
         }
 
         usedLabels[label] = true;

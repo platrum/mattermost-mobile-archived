@@ -1,27 +1,16 @@
 {
     "DefaultServerUrl": "",
+    "DefaultServerName": "",
     "TestServerUrl": "http://localhost:8065",
-    "ShowErrorsList": false,
-    "EELearnURL": "mattermost.com",
-    "TeamEditionLearnURL": "mattermost.org",
-    "AboutTeamURL": "https://mattermost.com/",
-    "AboutEnterpriseURL": "https://mattermost.com/",
-    "PlatformNoticeURL": "https://github.com/mattermost/mattermost-server/blob/master/NOTICE.txt",
+    "AutoSelectServerUrl": false,
+
+    "WebsiteURL": "https://mattermost.com",
+    "ServerNoticeURL": "https://github.com/mattermost/mattermost-server/blob/master/NOTICE.txt",
     "MobileNoticeURL": "https://github.com/mattermost/mattermost-mobile/blob/master/NOTICE.txt",
+
     "RudderApiKey": "",
 
-    "AutoSelectServerUrl": false,
-    "CustomRequestHeaders": {},
-    "ExperimentalNormalizeMarkdownLinks": false,
-
-    "HideEmailLoginExperimental": false,
-    "HideGitLabLoginExperimental": false,
-    "HideLDAPLoginExperimental": false,
-    "HideSAMLLoginExperimental": false,
-    "HideO365LoginExperimental": false,
-
     "SentryEnabled": false,
-    "ShowSentryDebugOptions": false,
     "SentryDsnIos": "",
     "SentryDsnAndroid": "",
     "SentryOptions": {
@@ -29,8 +18,13 @@
         "autoBreadcrumbs": {
             "xhr": false,
             "console": true
-        }
+        },
+        "severityLevelFilter": ["fatal"]
     },
-    
-    "ShowPerformanceMarkers": false
+
+    "ShowReview": false,
+    "ShowOnboarding": false,
+
+    "ExperimentalNormalizeMarkdownLinks": false,
+    "CustomRequestHeaders": {}
 }
